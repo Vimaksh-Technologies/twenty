@@ -1,9 +1,9 @@
 # ParyaTech Twenty Dokploy Deployment Design
 
-**Date:** 2026-08-06  
-**Status:** Approved for implementation planning  
-**Target:** `https://twenty.paryatech.in`  
-**Environment count:** One
+- **Date:** 2026-08-06
+- **Status:** Approved for implementation planning
+- **Target:** `https://twenty.paryatech.in`
+- **Environment count:** One
 
 ## 1. Outcome
 
