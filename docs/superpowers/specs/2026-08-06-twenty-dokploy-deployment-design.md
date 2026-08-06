@@ -135,7 +135,7 @@ The user explicitly selected the staging/Team R2 account for Twenty storage. To 
 - Configure bucket CORS only for `https://twenty.paryatech.in` when browser-based object access requires it.
 - Prefer a Twenty-specific bucket-scoped S3 credential over a broad account credential when Cloudflare supports creating it during rollout.
 - Copy primary objects daily into timestamped backup snapshots rather than using a destructive mirror that propagates deletions.
-- Apply an appropriate retention lock to backup snapshots after verifying that restore and retention operations remain manageable.
+- Apply a Cloudflare R2 Bucket Lock rule to backup snapshots after verifying that restore and retention operations remain manageable. Do not assume S3 Object Lock API compatibility; configure and verify the Cloudflare-native bucket-lock control.
 
 This is an intentional cross-account arrangement: the hostname is in the HQ zone while object storage is in the Team R2 account. The separation must be recorded in the operations handoff.
 
@@ -211,7 +211,7 @@ Initial password authentication is acceptable for bootstrap. Google or Microsoft
 7. Install environment variables and secrets.
 8. Install the temporary bootstrap access gate, then configure the domain to route only to the Twenty server on port 3000.
 9. Deploy and wait for PostgreSQL, Redis, migrations, server health, and worker startup.
-10. Run `upgrade:status`; fail closed if any instance or workspace migration is behind or failed. Keep the worker's migration execution disabled.
+10. Run `upgrade:status`, capture its full output, and explicitly assert that the instance and every workspace report `Up to date` with zero behind or failed entries; do not rely on command exit code alone. Fail closed on any ambiguous, behind, or failed status. Keep the worker's migration execution disabled.
 11. Verify HTTPS, redirects, response headers, health endpoint, logs, database persistence, and primary R2 write/read behavior.
 12. Configure logical database backups, timestamped R2 file backups, and backup-staleness notifications.
 13. Test one database backup, one file backup, and the notification failure path.
