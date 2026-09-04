@@ -1,7 +1,8 @@
 # Paryatech CRM workspace runbook
 
-**Status:** U1 manual-configuration contract. This document defines a reproducible
-metadata recipe; it does not authorize or record a live production change.
+**Status:** U1–U2 manual-configuration contract. This document defines reproducible
+metadata, identity, and permission recipes; it does not authorize or record a live
+production change.
 
 ## Scope and safety boundary
 
@@ -14,9 +15,9 @@ metadata recipe; it does not authorize or record a live production change.
 - Do not enter secrets, credentials, source rows, message bodies, attachments,
   payment instruments, bank or UPI data, identity documents, or real PII while
   recreating or verifying this recipe.
-- U1 creates metadata and records policy decisions only. Roles and permissions are
-  U2; views and workflows are U3; import is U4; guarded mutations are U5/U6; mailbox
-  synchronization is U8.
+- U1 creates metadata and records policy decisions. U2 defines identities, roles,
+  protected fields, recovery, and verification. Views and workflows are U3; import
+  is U4; guarded mutations are U5/U6; mailbox synchronization is U8.
 
 ## Naming and requiredness conventions
 
@@ -474,6 +475,379 @@ A missing policy value blocks only its dependent capability unless recovery,
 restricted exposure, or reconstructability is affected. Missing provider-mirror
 acceptance always blocks U8.
 
+## U2 identity and permission contract
+
+Configure and prove these controls in a disposable Twenty v2.27 workspace before any
+restricted data is admitted. Role profiles are complete profiles, not additive
+fragments. A person with several responsibilities receives the least-privileged
+profile that permits daily work; separately accountable approvals remain assigned to
+another named identity. Do not assign the system Administrator role for convenience.
+
+### Twenty v2.27 capability model
+
+Use the capability names below exactly. The v2.27 record-permission model exposes
+`canReadObjectRecords`, `canUpdateObjectRecords`,
+`canSoftDeleteObjectRecords`, and `canDestroyObjectRecords`. It has no separate
+create-record bit: an object update grant is also the role's record-creation
+capability, so protected creation and transitions must use the U5/U6 guarded actions.
+At field level, `canReadFieldValue: false` hides a field and implies
+`canUpdateFieldValue: false`; `canUpdateFieldValue: false` preserves read-only
+visibility.
+
+The actual `PermissionFlagType` values in the pinned source are:
+
+| Category | Exact flags |
+| --- | --- |
+| Settings | `API_KEYS_AND_WEBHOOKS`, `WORKSPACE`, `WORKSPACE_MEMBERS`, `ROLES`, `DATA_MODEL`, `SECURITY`, `WORKFLOWS`, `IMPERSONATE`, `SSO_BYPASS`, `APPLICATIONS`, `MARKETPLACE_APPS`, `LAYOUTS`, `BILLING`, `AI_SETTINGS` |
+| Tools | `AI`, `VIEWS`, `UPLOAD_FILE`, `DOWNLOAD_FILE`, `SEND_EMAIL_TOOL`, `CREATE_CALENDAR_EVENT_TOOL`, `HTTP_REQUEST_TOOL`, `CODE_INTERPRETER_TOOL`, `IMPORT_CSV`, `EXPORT_CSV`, `CONNECTED_ACCOUNTS`, `PROFILE_INFORMATION` |
+
+The built-in Administrator role is system-managed and cannot be narrowed like a
+custom role. Its power is controlled by assigning it only to the two protected
+recovery identities, requiring separate authorization for high-risk use, and auditing
+every use. `HTTP_REQUEST_TOOL`, `CODE_INTERPRETER_TOOL`, logic-function execution,
+and production AI execution remain globally disabled even if an Administrator screen
+shows the corresponding role flag.
+
+### Human role and identity matrix
+
+| ID | Twenty role | Identity contract | Purpose and hard boundary |
+| --- | --- | --- | --- |
+| ROLE-OP | `Paryatech Operator` custom role | One named human per account | Shared Agency, Contact, Opportunity, Task, Note, communication, Outreach Event, and Support Case work. No commercial-sensitive, export, delete/destroy, settings, connection, role, workflow, object-model, or key-management power. |
+| ROLE-CS | `Paryatech Commercial Sensitive` custom role | One named approved human per account | Complete Operator profile plus restricted commercial read and guarded commercial actions. Still no export, delete/destroy, settings, connection, role, workflow, object-model, or key-management power. |
+| ROLE-LC | `Paryatech Legal Compliance` custom role | One named accountable human per account | Review outreach basis, suppression evidence, and retained minimum evidence; only role authorized for `clearSuppression`. No outbound, opportunity, commercial, bulk-export, destructive, or administrative power. |
+| ROLE-AR | `Paryatech Audit Reviewer` custom role | One named approved human per account | Read-only business and privileged evidence. It is classified as commercial-sensitive for read-only Agreement review, but cannot update business records or alter/delete audit evidence. |
+| ROLE-RA1 | Built-in Administrator | First named recovery-only human identity | Users, roles, settings, connections, retention, emergency halt, and recovery. Never the person's default operating identity. |
+| ROLE-RA2 | Built-in Administrator | Second named recovery-only human identity | Independent recovery path with the same limits; no shared credential, factor, device, or recovery method with ROLE-RA1. |
+
+The planner/data owner is an accountability recorded in C09, not an automatic
+permission grant. Combining a planner or commercial duty with another job in the
+4–8-person team never combines suppression clearance, recovery administration, or
+audit approval into one approval boundary.
+
+### Scoped non-human identity matrix
+
+Create a separate role, credential, owner, expiry/review date, and emergency-revoke
+procedure for each admitted integration. Never share an API key across rows.
+
+| ID | Credential / Twenty binding | Allowlisted capability | Explicit denial |
+| --- | --- | --- | --- |
+| ID-IMP | Temporary API key bound to custom role `Paryatech Import` | Read/update-create N01, N02, C01, C02 and C08; preserve approved provenance and reconciliation state | Messages, attachments, C04 Agreements, C06 Support Receipts, audit, users, roles, settings, connections, keys, native CSV import/export, delete/destroy, and every U5/U6 guarded action |
+| ID-COMM | Per-channel application/API identity bound to `Paryatech Communication Intake` only when U5/U7 authorizes it | Read Agency/Contact suppression and active reservation state; create C07 through `recordOutreachOutcome`; create/update its owned C08 exception | Claim/release, suppression clearance, Opportunity/Agreement/Case transitions, mailbox browsing, generic files, audit, exports, administration, and all unrelated objects |
+| ID-SUPPORT | Per-channel application/API identity bound to `Paryatech Support Intake` only when U6 authorizes it | Create/replay C06 and attach-or-create C05 through `recordSupportReceipt`; create/update its owned C08 exception | Case resolution/reopen, suppression, sales/commercial, mailbox browsing, audit, exports, administration, and all unrelated objects |
+| ID-GOOGLE | Administrator-created Google OAuth connection; not a Twenty workspace member or reusable CRM API key | U7/U8 approved Gmail folders and the dedicated customer-facing primary calendar only | Drive, contacts, unapproved calendars/folders, CRM administration, broad export, and use outside the connected-account pipeline |
+| ID-SMTP | Server-side SMTP credential; not a workspace member or CRM API key | Low-volume transactional SMTP configured in U7 | CRM reads, campaign/sequence use, final-delivery inference, UI/log/audit/export exposure |
+| ID-AUDIT-W | Application audit ingestion credential outside CRM roles | Write-only ClickHouse ingestion after U9 | Read, update, delete, schema administration, CRM/API access |
+| ID-AUDIT-R | Audit Reviewer ClickHouse credential outside CRM roles | Read-only approved audit queries after U9 | Write, update, delete, retention changes, schema administration |
+| ID-BACKUP | External platform backup identity outside CRM roles | Write immutable encrypted backup objects and perform the separately approved restore path | Interactive CRM, business-record API, audit deletion, normal operator use |
+
+Google, SMTP, ClickHouse, and backup identities are boundary declarations in U2;
+their live credentials and provider configuration belong to U7/U9/U10. Do not invite
+them as human workspace members merely to make a probe pass.
+
+### Object permission matrix
+
+Each tuple is
+`canReadObjectRecords/canUpdateObjectRecords/canSoftDeleteObjectRecords/canDestroyObjectRecords`.
+`A` means true and `D` means false. Set all four role-wide defaults to false for
+custom roles, then add only the listed object overrides. All omitted objects are
+`D/D/D/D`. Administrator entries reflect the system role and are not custom
+overrides.
+
+| Object | ROLE-OP | ROLE-CS | ROLE-LC | ROLE-AR | ROLE-RA1/2 | ID-IMP | ID-COMM | ID-SUPPORT |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| N01 Agency | A/A/D/D | A/A/D/D | A/D/D/D | A/D/D/D | Admin | A/A/D/D | A/D/D/D | D/D/D/D |
+| N02 Agency Contact | A/A/D/D | A/A/D/D | A/D/D/D | A/D/D/D | Admin | A/A/D/D | A/D/D/D | D/D/D/D |
+| N03 Opportunity | A/A/D/D | A/A/D/D | D/D/D/D | A/D/D/D | Admin | D/D/D/D | D/D/D/D | D/D/D/D |
+| N04 Task | A/A/D/D | A/A/D/D | A/A/D/D | A/D/D/D | Admin | D/D/D/D | D/D/D/D | D/D/D/D |
+| N05 Note | A/A/D/D | A/A/D/D | A/A/D/D | A/D/D/D | Admin | D/D/D/D | D/D/D/D | D/D/D/D |
+| C01 Acquisition Source | A/D/D/D | A/D/D/D | A/D/D/D | A/D/D/D | Admin | A/A/D/D | D/D/D/D | D/D/D/D |
+| C02 Acquisition Event | A/D/D/D | A/D/D/D | A/D/D/D | A/D/D/D | Admin | A/A/D/D | D/D/D/D | D/D/D/D |
+| C03 Product | A/D/D/D | A/D/D/D | D/D/D/D | A/D/D/D | Admin | D/D/D/D | D/D/D/D | D/D/D/D |
+| C04 Commercial Agreement | D/D/D/D | A/A/D/D | D/D/D/D | A/D/D/D | Admin | D/D/D/D | D/D/D/D | D/D/D/D |
+| C05 Support Case | A/A/D/D | A/A/D/D | A/D/D/D | A/D/D/D | Admin | D/D/D/D | D/D/D/D | A/A/D/D |
+| C06 Support Receipt | A/D/D/D | A/D/D/D | A/D/D/D | A/D/D/D | Admin | D/D/D/D | D/D/D/D | A/A/D/D |
+| C07 Outreach Event | A/D/D/D | A/D/D/D | A/D/D/D | A/D/D/D | Admin | D/D/D/D | A/A/D/D | D/D/D/D |
+| C08 Shared Exception | A/A/D/D | A/A/D/D | A/A/D/D | A/D/D/D | Admin | A/A/D/D | A/A/D/D | A/A/D/D |
+| C09 CRM Operating Policy | A/D/D/D | A/D/D/D | A/D/D/D | A/D/D/D | Admin | D/D/D/D | D/D/D/D | D/D/D/D |
+| Message / Message Thread | A/D/D/D | A/D/D/D | D/D/D/D | D/D/D/D | Admin | D/D/D/D | D/D/D/D | D/D/D/D |
+| Calendar Event | A/D/D/D | A/D/D/D | D/D/D/D | D/D/D/D | Admin | D/D/D/D | D/D/D/D | D/D/D/D |
+| Workspace Member, Role, API Key, Connected Account, Workflow, Object/Field Metadata | D/D/D/D | D/D/D/D | D/D/D/D | D/D/D/D | Admin | D/D/D/D | D/D/D/D | D/D/D/D |
+
+C06 records are immutable after creation. ID-SUPPORT's update-create grant exists
+because v2.27 has no separate create bit; the U6 pre-query hook and guarded mutation
+must deny direct update, soft delete, and destroy after a receipt exists.
+
+### `PermissionFlagType` matrix
+
+`Gate` means false in U2 and granted only after the named later unit passes. `Admin`
+means the system Administrator role exposes the capability, but the recovery-use
+procedure and separate authorization still apply.
+
+| Flag | ROLE-OP | ROLE-CS | ROLE-LC | ROLE-AR | ROLE-RA1/2 | ID-IMP / ID-COMM / ID-SUPPORT |
+| --- | --- | --- | --- | --- | --- | --- |
+| `API_KEYS_AND_WEBHOOKS` | D | D | D | D | Admin | D |
+| `WORKSPACE` | D | D | D | D | Admin | D |
+| `WORKSPACE_MEMBERS` | D | D | D | D | Admin | D |
+| `ROLES` | D | D | D | D | Admin | D |
+| `DATA_MODEL` | D | D | D | D | Admin | D |
+| `SECURITY` | D | D | D | D | Admin | D |
+| `WORKFLOWS` | D | D | D | D | Admin | D |
+| `IMPERSONATE` | D | D | D | D | Admin | D |
+| `SSO_BYPASS` | D | D | D | D | Admin | D |
+| `APPLICATIONS` | D | D | D | D | Admin | D |
+| `MARKETPLACE_APPS` | D | D | D | D | Admin | D |
+| `LAYOUTS` | D | D | D | D | Admin | D |
+| `BILLING` | D | D | D | D | Admin | D |
+| `AI_SETTINGS` | D | D | D | D | Admin | D |
+| `AI` | D | D | D | D | Admin, runtime disabled | D |
+| `VIEWS` | A | A | A | A | Admin | D |
+| `UPLOAD_FILE` | D | D | D | D | Admin | D |
+| `DOWNLOAD_FILE` | Gate: U8 actor/message authorization | Gate: U8 actor/message authorization | D | D | Admin | D |
+| `SEND_EMAIL_TOOL` | Gate: U7/U11 transactional-only | Gate: U7/U11 transactional-only | D | D | Admin | D |
+| `CREATE_CALENDAR_EVENT_TOOL` | Gate: U7 dedicated calendar | Gate: U7 dedicated calendar | D | D | Admin | D |
+| `HTTP_REQUEST_TOOL` | D | D | D | D | Admin, runtime disabled | D |
+| `CODE_INTERPRETER_TOOL` | D | D | D | D | Admin, runtime disabled | D |
+| `IMPORT_CSV` | D | D | D | D | Admin, separate authorization | D |
+| `EXPORT_CSV` | D | D | D | D | Admin, separate authorization | D |
+| `CONNECTED_ACCOUNTS` | D | D | D | D | Admin, separate authorization | D |
+| `PROFILE_INFORMATION` | A | A | A | A | Admin | D |
+
+An API key can authenticate without receiving `API_KEYS_AND_WEBHOOKS`; that flag
+controls key/webhook administration and belongs only to the recovery Administrators.
+The import path uses its bound object role and does not use native `IMPORT_CSV`.
+
+### Protected direct-field matrix
+
+Apply `canUpdateFieldValue: false` to every field in PF01–PF08 for every custom human
+and integration role unless the table explicitly grants a direct exception. U5/U6
+mutations validate actor, current state, evidence, and related records and write these
+fields transactionally. A visible field or forged client action never confers write
+authority.
+
+| Set | Exact fields | Read policy | Direct update policy |
+| --- | --- | --- | --- |
+| PF01 Agency lifecycle, ownership, reservation, and metrics | N01 `agencyLifecycle`, `agencyDisposition`, `recordOwner`, `reservationStatus`, `reservationClaimant`, `reservationClaimedAt`, `reservationExpiresAt`, `reservationReleaseReason`, `firstAttemptedAt`, `firstProviderAcceptedAt`, `firstPendingUnknownAt`, `firstContactedAt`, `firstEngagedAt` | ROLE-OP/CS/LC/AR read; integrations read only where their object grant permits | Deny all custom roles and integrations; U5 only |
+| PF02 Agency suppression evidence | N01 `isSuppressed`, `suppressionReason`, `suppressedAt`, `suppressionClearedAt`, `suppressionClearanceReason`; N02 same fields | ROLE-OP/CS see only `isSuppressed`; ROLE-LC/AR and Administrators may read all; integrations see only `isSuppressed` where allowlisted | Deny all direct updates; `clearSuppression` requires ROLE-LC, retained evidence, and reason |
+| PF03 Opportunity transitions and evidence | N03 `stage`, `amount`, `contacts`, `products`, `nextAction`, `nextActionAt`, `demoScheduledAt`, `demoOccurredAt`, `demoAttendees`, `demoOutcome`, `proposalDeliveredAt`, `commercialDecisionContext`, `lossReason`, `lossDecisionAt`, `revisitAt`, `primarySource`, `influencedSources`, every `trial*` field, and `agreement` | ROLE-OP reads all except `amount`, `commercialDecisionContext`, `agreement`, and commercial Trial evidence; ROLE-CS and ROLE-AR read all; ROLE-LC/integrations read none | Deny direct update; `transitionOpportunity` only |
+| PF04 Commercial Agreement | All C04 fields except `restrictedNotes` | ROLE-CS and ROLE-AR read; all other custom roles/integrations cannot read C04 | Deny direct update; `transitionAgreement` only |
+| PF05 Private commercial notes | C04 `restrictedNotes` | ROLE-CS and ROLE-AR read; Administrators only for approved recovery; all others hidden | ROLE-CS may update; all others deny |
+| PF06 Support receipt and Case transitions | All C06 fields; C05 `sourceReceivedAt`, `responseTargetAt`, `owner`, `status`, `disposition`, `firstSubstantiveResponseAt`, `resolution` | Any role with the object read grant may read; Agreement association remains hidden when C04 is hidden | Deny direct update; U6 receipt, response, and Case actions only |
+| PF07 Outreach and exception transitions | All C07 fields; C08 `status`, `lastTrustedState`, `evidence`, `resolvedAt`, `resumeReason`, `resumedAt` | Any role with the object read grant may read | Deny direct update; U5 outreach and U6 exception actions only. C08 `owner`, `dueAt`, and `escalation` remain directly editable by an allowed owner role |
+| PF08 Operating policy | All C09 fields | ROLE-OP/CS see operational deadlines only; ROLE-LC sees legal, suppression, and retention entries; ROLE-AR sees the full policy; role-holder identity and recovery fields are Administrator/ROLE-AR only | Administrators only, under separately authorized and audited policy change |
+
+Native record history is required but insufficient: every guarded ownership,
+lifecycle, suppression, trial, commercial, activation, adoption, renewal, response,
+Case, or exception change must also retain its named reason/evidence fields.
+
+### Guarded action matrix
+
+These are application permissions enforced server-side by
+`getParyatechCrmAvailableActions` and the named mutation, not
+`PermissionFlagType` values. `Conditional` requires the listed record state,
+ownership, field-read/update capability, and evidence. Direct field editing remains
+denied even when the action is allowed.
+
+| Guarded action | ROLE-OP | ROLE-CS | ROLE-LC | ROLE-AR | ROLE-RA1/2 | ID-IMP | ID-COMM | ID-SUPPORT |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `claimAgency` | Conditional | Conditional | Deny | Deny | Deny for daily work | Deny | Deny | Deny |
+| `releaseAgency` | Own active claim only | Own active claim only | Deny | Deny | Audited recovery transfer only | Deny | Deny | Deny |
+| `recordOutreachOutcome` | Own active claim | Own active claim | Deny | Deny | Deny for daily work | Deny | Allowlisted provider evidence only | Deny |
+| `transitionOpportunity` to Qualified, Demo Scheduled, Demo Completed, Proposal / Commercial Decision, or Lost | Conditional | Conditional | Deny | Deny | Audited correction only | Deny | Deny | Deny |
+| `transitionOpportunity` to Negotiation, Awaiting Payment, Paid / Won, or commercial/trial correction/reopen | Deny | Conditional | Deny | Deny | Audited recovery only | Deny | Deny | Deny |
+| `transitionAgreement` | Deny | Conditional | Deny | Deny | Audited recovery only | Deny | Deny | Deny |
+| `recordSupportReceipt` | Manual source only | Manual source only | Deny | Deny | Emergency recovery only | Deny | Deny | Allowlisted source receipt only |
+| `recordSubstantiveResponse` | Assigned Case | Assigned Case | Deny | Deny | Audited correction only | Deny | Deny | Deny |
+| `transitionSupportCase` | Assigned Case | Assigned Case | Deny | Deny | Audited correction/reopen only | Deny | Deny | Deny |
+| `clearSuppression` | Deny | Deny | Retained evidence and recorded reason only | Deny | Deny; legal boundary remains separate | Deny | Deny | Deny |
+| `resumeSharedException` | Assigned operational exception | Assigned operational/commercial exception | Assigned legal/policy exception | Assigned audit exception | Assigned recovery/security exception | Deny | Deny | Deny |
+
+An Administrator may repair access or invoke an explicitly coded recovery path; the
+system role does not bypass the server's actor/state/evidence validation. No custom
+role may impersonate another actor.
+
+### Individual account and MFA procedure
+
+Twenty v2.27 permits a user to enable two-factor authentication for their own
+account; U2 does not claim that a workspace role can force that user setting. Strong
+MFA must therefore be enforced in Google Workspace/the approved IdP for every human,
+with stronger session policy for ROLE-CS, ROLE-LC, ROLE-AR, ROLE-RA1, and ROLE-RA2.
+If local-password sign-in cannot be disabled or the privileged user's Twenty 2FA
+enrollment cannot be verified, do not assign the privileged role and keep restricted
+rollout closed.
+
+#### Onboarding
+
+1. A recovery Administrator verifies the approved access request, employment/contract
+   state, role owner, and corporate identity. Never invite a personal/shared address.
+2. Create one individual CRM membership and assign exactly one complete role profile.
+   Do not clone a recovery Administrator for routine work.
+3. Confirm IdP MFA enrollment, approved factors, session policy, device posture, and
+   account-recovery owner. Enable and verify user-controlled Twenty 2FA where the
+   local sign-in route remains available; store recovery material outside Git and CRM.
+4. Sign in as the new identity in a private desktop-browser session. Run the allowed
+   and denied probes for its role, including keyboard/focus access to permitted
+   actions. Do not use another user's session.
+5. Record only internal account/role IDs, approval reference, MFA assertion result,
+   probe result, reviewer, and timestamp in the protected evidence record. Do not
+   record email address, factors, recovery codes, tokens, cookies, or screenshots
+   containing record content.
+6. A different accountable reviewer approves ROLE-CS, ROLE-LC, ROLE-AR, or recovery
+   access. Restricted data remains closed until the approval and denial probes pass.
+
+#### Role change and deprovisioning
+
+1. Disable the IdP/corporate account first for termination or suspected compromise;
+   for ordinary role change, revoke active CRM sessions before reassignment.
+2. Revoke owned API keys, OAuth grants, application tokens, and provider sessions.
+   Rotate a shared provider credential only when the departing person could access it.
+3. Remove or narrow the workspace role, reassign owned Agencies, Opportunities,
+   Tasks, Cases, exceptions, and approval duties without rewriting history.
+4. Replace the person in C09 role-holder fields and any on-call/escalation registry.
+   Two verified recovery Administrators must remain at every step.
+5. Run the old-role denial probes and new-role allow/deny probes from fresh sessions.
+   For departure, prove the old identity cannot sign in or call the API.
+6. Record reason, approver, actor, timestamp, affected role/account IDs, reassignment
+   counts, revocations, observed denial, and exceptions. Retain under the C09 audit
+   policy; never retain secrets or PII in the evidence.
+
+Review all memberships, role assignments, recovery identities, API keys, connected
+accounts, and external audit/backup identities before Day 0, monthly, and immediately
+after any role, employment, provider, or security change.
+
+### Two-Administrator recovery contract
+
+- ROLE-RA1 and ROLE-RA2 are named individual accounts with distinct strong MFA,
+  devices, recovery methods, and protected credential custody. Shared break-glass
+  credentials are prohibited.
+- Each Administrator has a separate least-privileged daily account if they also
+  perform operator/commercial work. Recovery identities are not used for email,
+  browsing records, routine configuration, or daily queues.
+- Before restricted rollout, each Administrator independently signs in, verifies the
+  other account remains recoverable, and restores a locked synthetic user in the
+  disposable workspace. A second person witnesses role/settings/connection changes.
+- A recovery exercise records actor ID, witness ID, reason, start/end time, affected
+  setting IDs, expected/observed result, and audit reference. It records no factors,
+  recovery codes, session material, or record content.
+- Loss of either independent recovery path pauses privileged changes and restricted
+  scale-up until a new second Administrator is approved, enrolled, probed, and
+  recorded. One remaining Administrator may perform only the minimum recovery needed
+  to restore the second path.
+- Permanent destroy, broad export, role/object/workflow/retention changes, connection
+  changes, SSO bypass, impersonation, and key creation/revocation require a recorded
+  reason and second-person authorization even though the system Administrator role
+  can technically perform them.
+
+### Suppression-clearance authority
+
+Suppression applies immediately when either the Agency or Contact is suppressed.
+ROLE-OP, ROLE-CS, every integration, and both recovery Administrators are denied
+`clearSuppression`. Only ROLE-LC may clear it, after verifying the approved basis and
+retained minimum evidence and entering the clearance reason. The guarded action
+records actor, source observation time, CRM record time, reason/evidence reference,
+prior state, and resulting state. A later visible retry is a separate operator action;
+clearance never sends or claims automatically. Missing legal/compliance ownership or
+a failed clearance denial probe blocks scaled outreach.
+
+### Temporary API-key issue, scope, and revocation
+
+1. A recovery Administrator creates the dedicated custom integration role first with
+   all role-wide defaults false and only the exact object/action grants above.
+2. Create one API key bound to that role. Set expiry to the approved run window or
+   24 hours, whichever is earlier. The key itself receives no
+   `API_KEYS_AND_WEBHOOKS`, `IMPORT_CSV`, `EXPORT_CSV`, mailbox, audit, or settings
+   permission.
+3. Deliver the token once into an encrypted `0600` local environment file or approved
+   secret manager. Never place it in Git, shell history, commands, screenshots, logs,
+   CRM fields, Notes, audit payloads, or exports.
+4. Before source access, run the ID-IMP allow/deny probes with synthetic records.
+   Any unexpected read, mutation, export, settings, mailbox, or audit access blocks
+   import and requires role repair plus a fresh key.
+5. Revoke the key immediately after reconciliation, on any error that may expose it,
+   when the operator changes, or at expiry. Delete the local token material.
+6. From a fresh process, replay one harmless synthetic read and require an
+   authentication denial. Record only key ID/hash fingerprint, role ID, creator,
+   approver, issue/expiry/revoke times, scoped counts, probe result, and denial.
+
+Do not rotate an import key into a continuing integration. A later import receives a
+new key and repeats the complete scope/denial/revocation proof.
+
+### Browser and API permission probes
+
+Use fictitious records in the disposable workspace and a separate private browser
+session/token for every identity. The browser and API must agree; a hidden button is
+not authorization evidence, and an API denial does not excuse a leaking browser
+field.
+
+| Probe | Identity | Browser operation | API operation | Expected |
+| --- | --- | --- | --- | --- |
+| BP01/AP01 | ROLE-OP | Open and edit a normal Agency fact; open shared Task/Case | Read/update unprotected N01/C05 field | Allow |
+| BP02/AP02 | ROLE-OP | Open Agreement/restricted commercial fields | Read C04 and PF03/PF04/PF05 hidden fields | Deny without value leakage |
+| BP03/AP03 | ROLE-OP | Use export, delete/destroy, Settings roles/data model/workflows/connections/API keys | `EXPORT_CSV`, soft-delete/destroy, metadata/settings operations | Deny |
+| BP04/AP04 | ROLE-CS | Open Agreement and edit `restrictedNotes`; invoke valid commercial action | Read C04, update PF05, valid `transitionAgreement` | Allow |
+| BP05/AP05 | ROLE-CS | Directly edit payment, renewal, activation, adoption, stage, or guarded evidence | Update PF01/PF03/PF04/PF06/PF07 field | Deny; prior state unchanged |
+| BP06/AP06 | ROLE-LC | Read suppression evidence and clear a synthetic suppression with evidence/reason | Valid `clearSuppression` | Allow and retain evidence/history |
+| BP07/AP07 | ROLE-OP, ROLE-CS, ROLE-RA1/2, integrations | Request suppression clearance | Forged `clearSuppression` | Deny; prior state unchanged |
+| BP08/AP08 | ROLE-AR | Read approved Agency, Agreement, policy, and audit evidence | Read permitted business/audit evidence | Allow read-only |
+| BP09/AP09 | ROLE-AR | Edit, delete, export, alter retention, or administer users/roles | Mutation/export/settings operation | Deny |
+| BP10/AP10 | ROLE-RA1 then ROLE-RA2 | Recover a locked synthetic user and inspect settings | Approved administrative recovery operation | Allow with reason, witness, and audit reference |
+| BP11/AP11 | ROLE-RA1/2 daily-account session | Attempt Administrator settings from the least-privileged daily role | Settings operation | Deny |
+| BP12/AP12 | ID-IMP | Create/update synthetic Source→Agency→Contact and its exception | Allowlisted N01/N02/C01/C02/C08 operation | Allow; no Opportunity/reservation/owner/contact metric created |
+| BP13/AP13 | ID-IMP | Open mailbox, audit, Agreement, export, users, roles, settings, or connections | Corresponding reads/mutations and every guarded U5/U6 action | Deny |
+| BP14/AP14 | ID-COMM | Submit allowlisted synthetic provider evidence | Valid `recordOutreachOutcome` after U5 | Allow only the scoped event/exception changes |
+| BP15/AP15 | ID-SUPPORT | Replay a synthetic receipt key | `recordSupportReceipt` after U6 | Return existing Case; no duplicate receipt |
+| BP16/AP16 | Expired/revoked API key | No browser use | Harmless synthetic read | Authentication denial |
+| BP17/AP17 | Any non-Administrator | Open member/role/object/workflow/connection/key settings | Matching metadata/settings API | Deny |
+| BP18/AP18 | Any custom role/integration | Soft-delete or destroy any U1 record | Soft-delete/destroy mutation | Deny |
+
+For API probes, keep the token only in an environment variable and each synthetic
+GraphQL request in a `0600` temporary file. Send it to the disposable workspace,
+capture HTTP status and a normalized `allowed` or `denied` result, and delete the raw
+response immediately:
+
+```bash
+chmod 600 "$PARYATECH_PROBE_REQUEST"
+curl --silent --show-error \
+  --output "$PARYATECH_PROBE_RESPONSE" \
+  --write-out '%{http_code}\n' \
+  --header 'Content-Type: application/json' \
+  --header "Authorization: Bearer $PARYATECH_PROBE_TOKEN" \
+  --data-binary "@$PARYATECH_PROBE_REQUEST" \
+  "$PARYATECH_PROBE_ORIGIN/graphql"
+unset PARYATECH_PROBE_TOKEN
+```
+
+The variable names are placeholders, not values. The probe operator must normalize a
+GraphQL HTTP 200 containing authorization errors as **denied**, verify that a denied
+mutation left the record unchanged with a separately authorized read, remove both
+temporary files, and never retain response bodies.
+
+### Scrubbed permission-evidence contract
+
+Retain one signed matrix artifact per role/policy version in the protected change
+record, outside Git. It contains:
+
+- Twenty version, environment class, workspace ID, metadata-export hash, role ID and
+  role-policy version;
+- pseudonymous test-identity ID, probe IDs BP01–BP18/AP01–AP18, expected result,
+  normalized observed result, timestamp, reviewer ID, and pass/fail;
+- all four global object defaults, every object override, every field restriction,
+  every `PermissionFlagType` value, and the guarded-action policy version;
+- MFA assertion result and enforcing system (`Google Workspace/IdP`, plus
+  user-enabled Twenty 2FA where applicable), without factor details;
+- API-key ID/hash fingerprint, role, expiry/revocation time, and post-revocation
+  denial for temporary identities;
+- ROLE-RA1/ROLE-RA2 recovery result and second-person authorization references;
+- suppression-clearance allow/deny result; and
+- exceptions, last trusted state, owner, due/escalation, reconciliation evidence,
+  explicit resume, and final sign-off by the role owner and Audit Reviewer.
+
+Exclude names, email addresses, phone numbers, credentials, tokens, cookies, session
+IDs, MFA factors/recovery material, provider payloads, source rows, message content,
+attachments, customer/Agency content, and raw GraphQL responses. Retain the scrubbed
+artifact under C09 `auditRetentionDays`. Audit evidence is not considered protected
+or tamper-evident until U9 provides the entitled ClickHouse path; that missing gate
+blocks high-risk/restricted rollout rather than being waived.
+
 ## Metadata creation recipe
 
 Perform only in a disposable v2.27 workspace until the verification section passes.
@@ -544,19 +918,42 @@ rollback result in the protected change record. Do not commit those values.
 
 ## Verification and no-test exception
 
-**No-test exception:** U1 changes documentation and a manual workspace recipe only;
-it changes no executable behavior. Adding an automated application test would not
-exercise Twenty Settings. Replacement verification is therefore mandatory:
+**No-test exception:** U1 and U2 change documentation and manual Twenty Settings
+recipes only; they change no executable behavior. Application tests would not prove
+the configured workspace role matrix, separate identities, or provider-side MFA.
+The following deterministic document checks and later disposable-workspace probes are
+the replacement evidence:
 
 1. `git diff --check -- docs/operations/paryatech-crm-runbook.md`
 2. Heading and identifier consistency: one H1; unique N01–N05, C01–C09, and
-   REL01–REL19 declarations; every relation reference targets a declared object.
-3. Recipe completeness: scope, fixed vocabularies, native/custom field inventories,
-   relation inventory, constraints, policy gate, creation order, rollback, recreate,
-   and no-test exception are all present.
-4. Content safety scan: no absolute local paths, credential assignments, secret
-   values, real email addresses other than the approved shared mailbox label, real
-   phone numbers, or source-row/customer content.
+   REL01–REL19 declarations; unique ROLE-OP, ROLE-CS, ROLE-LC, ROLE-AR, ROLE-RA1,
+   ROLE-RA2, ID-IMP, ID-COMM, ID-SUPPORT, ID-GOOGLE, ID-SMTP, ID-AUDIT-W,
+   ID-AUDIT-R, and ID-BACKUP identity declarations; every relation, role, identity,
+   protected-field set, and probe reference resolves to a declaration.
+3. U1 recipe completeness: scope, fixed vocabularies, native/custom field
+   inventories, relation inventory, constraints, policy gate, creation order,
+   rollback, and recreate contract are present.
+4. U2 matrix completeness: all 26 source `PermissionFlagType` values appear exactly
+   in the capability inventory and once as rows in the flag matrix; all four actual
+   object permission booleans and both field permission booleans are named; every U1
+   object, human role, scoped identity, PF01–PF08 set, guarded U5/U6 action, and
+   BP01–BP18/AP01–AP18 probe is covered.
+5. Denied-power check: every non-Administrator role denies `EXPORT_CSV`,
+   soft-delete/destroy, `WORKSPACE_MEMBERS`, `ROLES`, `DATA_MODEL`, `WORKFLOWS`,
+   `CONNECTED_ACCOUNTS`, and `API_KEYS_AND_WEBHOOKS`; ID-IMP also denies mailbox,
+   audit, C04, native import/export, and all guarded actions; only ROLE-LC may
+   `clearSuppression`; ROLE-AR is read-only; direct PF01–PF08 mutations are denied
+   except ROLE-CS editing PF05 and separately authorized Administrator policy work.
+6. Identity lifecycle check: individual-account onboarding, Google Workspace/IdP MFA
+   enforcement and user-enabled Twenty 2FA limitation, role-change/deprovisioning,
+   two independent recovery Administrators, temporary-key issue/revocation and
+   post-revocation denial, separate integration boundaries, browser/API probes, and
+   the scrubbed signed evidence contract are present.
+7. Content safety scan: no absolute local paths, credential values, tokens, cookies,
+   MFA factors/recovery material, real email addresses, real phone numbers, raw
+   source/customer rows, message bodies, attachments, or raw probe responses.
 
-U1 is complete only when all replacement checks pass. Live configuration remains a
-separate approved manual change.
+U1–U2 documentation is complete only when these deterministic checks pass.
+Configured U2 evidence additionally requires BP01–BP18/AP01–AP18 in a disposable
+workspace and cannot be claimed by this docs-only change. Live configuration remains
+a separate approved manual change.
