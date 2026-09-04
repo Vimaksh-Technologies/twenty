@@ -195,6 +195,142 @@ while creating or operating Twenty.
 - A lost application encryption key or incompatible restored secret set can make data
   unrecoverable. Test recovery in an isolated environment before relying on it.
 
+## Google Workspace and low-volume SMTP gates
+
+The compose file accepts only the Twenty v2.27 configuration names below. The
+Dokploy variable name is the secret/config reference; its value belongs in the
+approved secret manager and must never be copied into Git, a change record, command
+output, screenshot, or shared log.
+
+| Dokploy variable name | Required effective configuration |
+| --- | --- |
+| `MESSAGING_PROVIDER_GMAIL_ENABLED` | `false` in production through Release A; enable only for an approved staging smoke or Release B mailbox opening |
+| `CALENDAR_PROVIDER_GOOGLE_ENABLED` | `false` in production through Release A; enable only for an approved staging smoke or Release B calendar opening |
+| `AUTH_GOOGLE_CLIENT_ID` | Protected Google OAuth client identifier; record the secret name and owner, never the value |
+| `AUTH_GOOGLE_CLIENT_SECRET` | Protected Google OAuth client secret; record the secret name and owner, never the value |
+| `AUTH_GOOGLE_CALLBACK_URL` | Exactly `https://twenty.paryatech.in/auth/google/redirect` |
+| `AUTH_GOOGLE_APIS_CALLBACK_URL` | Exactly `https://twenty.paryatech.in/auth/google-apis/get-access-token` |
+| `EMAIL_FROM_ADDRESS` | Exactly `team@paryatech.in` after SMTP activation |
+| `EMAIL_FROM_NAME` | Approved Paryatech sender display name |
+| `EMAIL_DRIVER` | `LOGGER` until U10 passes; `SMTP` may be used for Release A only after U10 |
+| `EMAIL_SMTP_HOST` | Approved provider host reference |
+| `EMAIL_SMTP_PORT` | Approved authenticated TLS endpoint port |
+| `EMAIL_SMTP_USER` | Protected credential for the real `team@paryatech.in` sender |
+| `EMAIL_SMTP_PASSWORD` | Protected SMTP password/app-password reference |
+| `EMAIL_SMTP_NO_TLS` | `false`; do not approve a plaintext or TLS-optional test result |
+
+The compose defaults preserve the existing closed state: Google providers are disabled,
+the application email driver is `LOGGER`, and credential references are blank. Before
+activating a provider, populate every applicable reference in Dokploy and deploy the
+same configuration to server and worker. Because database-backed configuration is
+enabled, an administrator must also verify that Server Admin has no stale override for
+these names; a database value takes precedence over Dokploy. Use one approved source of
+truth and record only the effective source and a pass/fail result.
+
+`EMAIL_FROM_*` and `EMAIL_SMTP_*` configure Twenty's application email driver (for
+example invitations and password resets), not a CRM-contact campaign transport. Twenty
+v2.27 provides no supported environment variable for folder selection, internal-email
+exclusion, contact auto-creation, calendar selection, delivery-status ingestion,
+bounce/reply ingestion, or campaign limiting. Apply the manual controls below; do not
+invent environment flags. SMTP submission acceptance is not final delivery, does not
+make an Agency Contacted or Engaged, and must not be used for campaigns, sequences, bulk
+mail, or blind retries. Until a separately verified record-specific sending path exists,
+customer outreach remains an external send with a manual CRM communication record.
+
+### Google consent, connection, and scope
+
+1. In the approved Google Cloud project, configure an Internal OAuth consent screen for
+   the Paryatech Workspace organization. Authorize only the real human-operated
+   `team@paryatech.in` mailbox account; do not substitute an alias, service account, test
+   identity, or a shared Twenty login.
+2. Register both exact HTTPS callbacks from the table. Reject any callback with another
+   host, scheme, path, query, wildcard, or trailing slash.
+3. Approve only the scopes requested by Twenty v2.27: `email`, `profile`,
+   `https://www.googleapis.com/auth/gmail.readonly`,
+   `https://www.googleapis.com/auth/calendar.events`,
+   `https://www.googleapis.com/auth/profile.emails.read`,
+   `https://www.googleapis.com/auth/gmail.send`, and
+   `https://www.googleapis.com/auth/gmail.compose`. Record consent-screen version,
+   administrator, scope set, and pass/fail without tokens or consent screenshots that
+   expose account data.
+4. Release A keeps both Google provider variables `false` and has no active production
+   mailbox/calendar sync. For staging, use a scrubbed sandbox account and close it after
+   the smoke. Connect the true mailbox only during the approved Release B opening under
+   an individual administrator's Twenty session.
+5. Before completing the connected-account configuration, choose **Some folders** /
+   **Import only selected folders/labels** and select only the approved customer-facing
+   Inbox, Sent, and customer labels. Do not select Drafts, Spam, Trash, private/internal
+   labels, or any catch-all label. In Settings > Security, keep **Sync Internal Emails**
+   off. In the message channel, set **Contact auto-creation** to **None**.
+6. In the calendar channel, turn **Auto-creation** off. Twenty v2.27 reads only the
+   Google account's `primary` calendar; it cannot select a different calendar with an
+   environment variable. The primary calendar for this account must therefore be a
+   dedicated, approved customer-facing calendar. Keep private and all-internal events
+   on other calendars, and admit descriptions or attachments only after broad-visibility
+   review.
+7. Confirm the named data owner's acceptance that approved message bodies and calendar
+   content are broadly visible to operators. Do not complete configuration or start
+   synchronization before the Release B gate records this acceptance and U8 passes.
+
+Deleting a connected account in Twenty is not proof that Google revoked its grant. For
+planned revocation, first disable both provider variables and redeploy server and worker,
+delete the connected account in Settings > Accounts, revoke the app grant in Google
+Workspace/Google Account administration, and verify a reconnect requires fresh consent.
+For client-secret rotation, add a replacement secret at Google, update the protected
+Dokploy reference, redeploy both processes, reconnect and repeat the scope/callback
+smoke, then revoke the old secret. Client-ID rotation must register both callbacks and
+repeat consent. Record only secret versions/fingerprints allowed by policy, never values.
+
+### SMTP acceptance and failure evidence
+
+After U10 passes, test `EMAIL_DRIVER=SMTP` in staging with the approved authenticated
+TLS endpoint and a controlled canary recipient:
+
+1. Prove TLS negotiation, hostname validation, authenticated submission, the expected
+   From address, and provider acceptance. Preserve a scrubbed provider submission ID,
+   timestamp, environment, and related CRM record/event reference.
+2. Prove an invalid credential and an unreachable endpoint produce a local failure.
+   Stop; do not replay until the Shared Exception has an owner, the last trusted state,
+   evidence, and an explicit resume decision.
+3. Prove an accepted message can later bounce and that a reply can arrive. Reconcile
+   provider delivery/bounce evidence and the human-observed reply manually; acceptance
+   alone stays provider-accepted, a bounce is not Contacted, and only a reply/two-way
+   interaction may establish Engaged.
+4. Inspect server and worker logs for the test window, then redact recipient addresses,
+   message content, authorization data, credentials, tokens, and provider payloads before
+   attaching evidence. Never use an environment dump or Docker inspection output.
+5. Return `EMAIL_DRIVER` to `LOGGER` after a staging test. Production may switch to
+   `SMTP` only after U10 and an approved Release A change record; Gmail and Calendar
+   remain disabled until Release B.
+
+Twenty v2.27's SMTP driver logs asynchronous submission success/failure but does not
+expose a delivery receipt, bounce, or reply contract to CRM records. Provider evidence
+and the manual reconciliation above are mandatory; this limitation blocks treating SMTP
+as delivery or automated contact evidence.
+
+### Emergency halt and staging smoke
+
+On suspected grant/credential exposure, wrong-folder import, internal/private content
+sync, duplicate send, or unexplained SMTP state:
+
+1. Set both Google provider variables to `false` and `EMAIL_DRIVER` to `LOGGER`; redeploy
+   server and worker with the immutable approved image. Keep `LOGIC_FUNCTION_TYPE` and
+   `CODE_INTERPRETER_TYPE` at `DISABLED`.
+2. Delete the Twenty connected account, revoke the Google grant, revoke/rotate the SMTP
+   credential, and preserve the last trusted state. Do not reconnect or resend.
+3. Open a Shared Exception naming the affected capability, evidence, owner, due/escalation,
+   and explicit resume gate. Broader sensitive-data rollout stops for exposure,
+   unreconstructable state, or recovery/monitoring failure.
+
+The staging smoke must cover: consent and exact callback success; missing-scope and
+callback-mismatch rejection; revoke and fresh-consent reconnect; credential rotation;
+only the selected customer folders; no Drafts/Spam/Trash/private/internal or all-internal
+mail; the dedicated primary calendar with no private/all-internal events; both
+auto-creation controls off; SMTP TLS/authentication, acceptance, local failure, bounce,
+and reply reconciliation; redacted logs; and the emergency halt. Record environment,
+immutable image digest, actor, expected/observed result, timestamp, scrubbed evidence
+location, and pass/fail. This smoke is not authority for a live deploy.
+
 ## Backup, restore, and retention
 
 - Back up PostgreSQL with a consistent logical dump or approved database-native method
@@ -290,6 +426,11 @@ while creating or operating Twenty.
 - [ ] `yarn command:prod upgrade:status` was parsed in the target server-release context and is neither behind, failed, nor ambiguous.
 - [ ] PostgreSQL persistence and private service connectivity are verified.
 - [ ] Primary and backup R2 buckets are distinct, private, least-privilege, and usable without disclosing credentials.
+- [ ] Google/SMTP configuration uses only the documented Dokploy variable names; secret values are absent from Git, logs, screenshots, exports, and the change record, and no stale Server Admin override exists.
+- [ ] Both exact Google callbacks and the approved seven-scope consent set pass in staging; revoke requires fresh consent and rotation invalidates the retired credential.
+- [ ] Release A keeps Gmail and Calendar disabled; Release B alone may connect `team@paryatech.in` after U8, selected-folder/internal-event exclusions, both auto-creation controls, primary-calendar scope, and data-owner acceptance pass.
+- [ ] SMTP remains `LOGGER` until U10; any later staging/Release A SMTP activation proves authenticated TLS, local failure, provider acceptance, bounce/reply reconciliation, redacted evidence, and no campaign/contact-count interpretation.
+- [ ] `LOGIC_FUNCTION_TYPE` and `CODE_INTERPRETER_TYPE` remain `DISABLED` on server and worker.
 - [ ] Fresh backup succeeds; isolated restore test has been completed against the approved retention policy.
 - [ ] Temporary Traefik Basic Auth was used for bootstrap (or the explicitly authorized SSH-tunnel fallback); its credential was delivered outside Git and logs.
 - [ ] Before the access gate was explicitly removed or relaxed, a non-secret test proved that unauthenticated users could not create a workspace.
