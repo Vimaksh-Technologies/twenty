@@ -1,8 +1,8 @@
 # Paryatech CRM workspace runbook
 
-**Status:** U1–U2 manual-configuration contract. This document defines reproducible
-metadata, identity, and permission recipes; it does not authorize or record a live
-production change.
+**Status:** U1–U3 manual-configuration contract. This document defines reproducible
+metadata, identity, permission, and native operating-surface recipes; it does not
+authorize or record a live production change.
 
 ## Scope and safety boundary
 
@@ -16,8 +16,9 @@ production change.
   payment instruments, bank or UPI data, identity documents, or real PII while
   recreating or verifying this recipe.
 - U1 creates metadata and records policy decisions. U2 defines identities, roles,
-  protected fields, recovery, and verification. Views and workflows are U3; import
-  is U4; guarded mutations are U5/U6; mailbox synchronization is U8.
+  protected fields, recovery, and verification. U3 defines native views, dashboards,
+  Tasks, Notes, reminders, and daily procedures. Import is U4; guarded mutations are
+  U5/U6; mailbox synchronization is U8.
 
 ## Naming and requiredness conventions
 
@@ -848,6 +849,299 @@ artifact under C09 `auditRetentionDays`. Audit evidence is not considered protec
 or tamper-evident until U9 provides the entitled ClickHouse path; that missing gate
 blocks high-risk/restricted rollout rather than being waived.
 
+## U3 native operating-surface contract
+
+Configure these surfaces only after U1 metadata and U2 roles reproduce successfully
+in a disposable Twenty v2.27 workspace. U3 uses native views, dashboards, Tasks,
+Notes, and notification workflows. It creates no custom dashboard, mobile surface,
+campaign, scoring system, or generic automation framework.
+
+### Time, counting, and visibility rules
+
+- Dashboard date filters use the viewing user's local timezone. The reviewer records
+  that timezone beside every captured total.
+- Business deadlines do not use viewer-local calendar arithmetic. U5/U6 calculate
+  `reservationExpiresAt`, `pendingExpiresAt`, and `responseTargetAt` from the active
+  C09 `businessCalendar`; views only compare the stored timestamp with `now`.
+- Day-30 and Day-90 windows begin at C09 `effectiveAt` in the policy timezone and end
+  at the recorded checkpoint instant. Never infer a business deadline from a
+  dashboard's relative-date filter.
+- A Contacted total is `count(N01 Agency)` where `firstContactedAt` is in the approved
+  window. Never count People, Outreach Events, messages, recipients, phone numbers,
+  Opportunities, or rows. One Agency with several Contacts or qualifying events
+  counts once.
+- Attempted, Provider Accepted/Completed Call, ever Pending/Unknown, Contacted, and
+  Engaged are separate Agency-grain counts using the corresponding N01 first-evidence
+  timestamp. A later state never rewrites an earlier metric.
+- The support-capture denominator is every unique C06 `receiptKey` observed at a
+  source. Count C06 Support Receipts, not Cases. Replays return the existing Receipt;
+  receipts attached to the same Case, unresolved identity, late, duplicate, and
+  non-support dispositions remain in the denominator.
+- Native dashboards cannot prove off-CRM omissions. The approved sampling review
+  compares source-observed unique receipt keys with C06 keys and records the
+  numerator, denominator, unexplained difference, owner, and decision outside a
+  shared dashboard.
+- A workspace-shared dashboard may use only objects and fields readable by ROLE-OP.
+  Never place C04, N03 `amount`, commercial/trial evidence, payment/waiver/refund/
+  reversal/net values, renewal terms, private notes, suppression evidence, role
+  holders, or restricted policy inputs in a shared widget, title, group, filter, or
+  drill-down.
+- Commercial, adoption, renewal, and activation review stays in ROLE-CS/ROLE-AR
+  permission-protected object views. Do not create or share aggregate widgets that
+  could reveal hidden values to ROLE-OP through labels, totals, tooltips, URLs,
+  exports, or cached drill-downs.
+
+### View creation recipe
+
+Create the views in ID order. Use the exact name, object, visible columns, filters,
+grouping, and sort below. `now` is evaluated in the viewer's timezone only for list
+display; stored business-calendar deadlines remain authoritative. Each view owner
+must be a named C09 role holder or the named queue owner recorded in the change
+record.
+
+| ID / exact name | Object and audience | Visible fields | Exact filters | Group and sort | Owner; empty state; error state |
+| --- | --- | --- | --- | --- | --- |
+| V01 `CRM · Shared Pool` | N01; ROLE-OP/CS | `name`, `geography`, `specializations`, `acquisitionCohorts`, `originalAcquisitionSource`, `agencyLifecycle`, `agencyDisposition`, `isSuppressed`, `reservationStatus`, `reservationClaimant`, `reservationExpiresAt` | `agencyLifecycle = Imported / Uncontacted`; `agencyDisposition = Eligible`; `isSuppressed = false`; reservation is empty, Released, or Expired | Group `acquisitionCohorts`; sort `reservationExpiresAt` ascending with empty first, then `name` ascending | Source-supply owner. Empty: inspect V02/V04/V05 and source gate; never loosen filters. Error/partial load: stop claiming and open owned C08 exception from last trusted state. |
+| V02 `CRM · Active Reservations` | N01; ROLE-OP/CS | `name`, `reservationClaimant`, `reservationClaimedAt`, `reservationExpiresAt`, `agencyDisposition`, `isSuppressed` | `reservationStatus = Claimed`; `reservationExpiresAt > now`; `isSuppressed = false` | Group `reservationClaimant`; sort `reservationExpiresAt` ascending, then `name` | Operator lead. Empty: valid if V01 has eligible supply. Error: stop claims/releases; do not infer expiry or owner. |
+| V03 `CRM · Pending Unknown Reconciliation` | C07; ROLE-OP/CS | `eventReference`, `agency`, `contact`, `operator`, `channel`, `initiatedAt`, `outcome`, `providerObservedAt`, `pendingExpiresAt`, `nextAction`, `nextActionAt`, `reasonedRetry` | `outcome = Pending / Unknown`; `pendingExpiresAt is not empty` | Group `operator`; sort `pendingExpiresAt` ascending, then `initiatedAt` ascending | Communication-reconciliation owner. Empty: no unresolved Pending/Unknown. Error: pause reasoned retry and provider reconciliation; never count Contacted. |
+| V04A `CRM · Suppressed Agencies` | N01; ROLE-OP/CS see state, ROLE-LC sees evidence | `name`, `isSuppressed`, `agencyDisposition`, `suppressedAt`; ROLE-LC additionally `suppressionReason`, `suppressionClearedAt`, `suppressionClearanceReason` | `isSuppressed = true` OR `agencyDisposition = Suppressed` | Group `agencyDisposition`; sort `suppressedAt` descending | Legal/compliance owner. Empty: valid only after BP07/AP07 denial probe. Error: block outbound globally for the affected records. |
+| V04B `CRM · Suppressed Contacts` | N02; same audiences | `name`, `company`, `contactStatus`, `isSuppressed`, `suppressedAt`; ROLE-LC evidence fields only | `isSuppressed = true` | Group `company`; sort `suppressedAt` descending | Legal/compliance owner. Empty/error behavior matches V04A. |
+| V05 `CRM · Identity Quarantine` | C08; ROLE-OP/CS, planner, audit read | `exceptionReference`, `affectedObject`, `affectedRecordId`, `status`, `lastTrustedState`, `owner`, `dueAt`, `escalation` | `capability = Import`; `status in New, Investigating, Blocked, Reopened` | Group `status`, then `affectedObject`; sort `dueAt` ascending with empty last | Data owner. Empty: no unresolved identity quarantine. Error: stop affected import/match work; never auto-merge or use latest-write-wins. |
+| V06 `CRM · Due Support` | C05; ROLE-OP/CS | `caseReference`, `subject`, `priority`, `sourceReceivedAt`, `responseTargetAt`, `owner`, `status`, `disposition`, `firstSubstantiveResponseAt`, `escalation` | `status in New, Assigned, In Progress, Waiting on Agency, Waiting Internal`; and (`responseTargetAt <= now` OR `priority = Urgent`) | Group `priority`, then `owner`; sort `responseTargetAt` ascending, then `sourceReceivedAt` | Support owner. Empty: confirm C06 receipts still reconcile to source. Error: treat source receipts as authoritative, pause dashboard claims, and open/assign from the receipt path. |
+| V07A `CRM · Due Renewals` | C04; ROLE-CS/AR only | `agreementReference`, `agency`, `products`, `renewalState`, `renewalAt`, `renewalOwner`, `renewalNextAction`, `renewalNextActionAt`, `evidenceState` | `renewalState in Renewing, Changed`; `renewalAt <= now + 30 days` | Group `renewalOwner`, then `renewalState`; sort `renewalNextActionAt` ascending, then `renewalAt` | Commercial owner. Empty: no due approved Agreement. Error: do not expose or copy values into shared Tasks/Notes; pause commercial action. |
+| V07B `CRM · Activation Review` | C04; ROLE-CS/AR only | `agreementReference`, `agency`, `activationState`, `activationConfirmedAt`, `activationConfirmer`, `evidenceState` | `activationState in Pending, Review Required` | Group `activationState`; sort `startsAt` ascending, then `agreementReference` | Commercial owner. Empty: no activation review. Error: preserve ParyatechOS as entitlement authority and create an owned C08 exception. |
+| V08 `CRM · Overdue Sales Actions` | N03; ROLE-OP/CS | `name`, `company`, `owner`, `stage`, `nextAction`, `nextActionAt`, `demoScheduledAt` | `stage not in Paid / Won, Lost`; `nextActionAt < now` | Group `owner`, then `stage`; sort `nextActionAt` ascending | Sales owner. Empty: no overdue recorded action; it does not prove completeness. Error: do not advance stage or edit guarded evidence directly. |
+| V09 `CRM · Commercial Evidence Staleness` | C04; ROLE-CS/AR only | `agreementReference`, `agency`, `paymentState`, `renewalState`, `evidenceSource`, `evidenceType`, `evidenceVerifier`, `evidenceObservedAt`, `evidenceRecordedAt`, `evidenceState`, `renewalNextActionAt` | `evidenceState in Stale, Conflict` OR (`evidenceState = Current` AND `evidenceObservedAt` is older than the C09 reconciliation cadence recorded in policy evidence) | Group `evidenceState`, then `evidenceVerifier`; sort `evidenceObservedAt` ascending | Commercial owner. Empty: no known stale/conflict evidence. Error: stop dependent commercial changes; never assume Current. |
+| V10A `CRM · Audit Security Recovery Exceptions` | C08; ROLE-AR and ROLE-RA1/2 | `exceptionReference`, `capability`, `affectedObject`, `affectedRecordId`, `status`, `lastTrustedState`, `owner`, `dueAt`, `escalation`, `resolvedAt`, `resumedAt` | `capability in Audit, Security, Recovery`; `status in New, Investigating, Blocked, Reopened` | Group `capability`, then `status`; sort `dueAt` ascending with empty last | Audit Reviewer. Empty: no recorded open exception, not proof the gate passed. Error: pause restricted rollout. |
+| V10B `CRM · Integration Health Exceptions` | C08; ROLE-OP/CS and planner | `exceptionReference`, `capability`, `affectedObject`, `status`, `lastTrustedState`, `owner`, `dueAt`, `escalation`, `resolvedAt`, `resumedAt` | `capability in Mailbox, SMTP, Integration`; `status in New, Investigating, Blocked, Reopened` | Group `capability`, then `status`; sort `dueAt` ascending | Integration owner. Empty: no open recorded integration exception. Error: pause only the affected capability unless exposure/recovery/reconstructability fails. |
+| V11A `CRM · Source Supply` | C01; ROLE-OP/CS and planner | `name`, `sourceType`, `sourceBatch`, `outreachBasis`, `owner`, `active`; cost fields hidden | `active = true` | Group `sourceType`; sort `sourceBatch` ascending, then `name` | Source-supply owner. Empty: source-sufficiency gate fails; do not count inventory as contact. Error: stop scale-up, preserve target/legal gates. |
+| V11B `CRM · Capacity Policy Evidence` | C09; planner and ROLE-AR | `policyVersion`, `effectiveAt`, `businessCalendar`, `pilotThresholds`, `pilotBatchReference`, `sourceYieldAndReplenishmentPlan`, `capacityInputs`, `sourceSupplyOwner`, `capacityOwner`, `commercialTargetOwner`, `day30TargetLockAt` | `active = true` | No grouping; sort `effectiveAt` descending | Capacity owner. Empty or more than one row: policy gate fails. Error: pause capacity decision and preserve risk-first work order. |
+| V12 `CRM · Adoption Review` | C04; ROLE-CS/AR only | `agreementReference`, `agency`, `products`, `activationState`, `adoptionState`, `adoptionEvidence`, `adoptionObservedAt`, `evidenceState` | `activationState = Confirmed`; `adoptionState in Not Assessed, Evidence Tracking, Milestone Recorded` | Group `adoptionState`; sort `adoptionObservedAt` ascending with empty first | Commercial/adoption owner. Empty: no activated Agreement requiring review. Error: do not infer adoption from entitlement or message activity. |
+
+Twenty view filters do not replace server authorization. After saving each view,
+repeat it as ROLE-OP, ROLE-CS, ROLE-LC, and ROLE-AR; verify hidden fields neither
+render nor appear in filter/group/sort selectors, URLs, exports, or drill-downs.
+
+### Dashboard recipes
+
+#### D01 `CRM · Shared Operations`
+
+Share D01 workspace-wide only after ROLE-OP can read every source field. Do not add a
+widget merely because an Administrator can preview it.
+
+| Widget | Native source and aggregation | Exact filter/group | Expected interpretation |
+| --- | --- | --- | --- |
+| D01-W01 Attempted Agencies | Count N01 records | `firstAttemptedAt is not empty`; checkpoint window when reviewing Day 30/90 | Unique Agencies attempted |
+| D01-W02 Provider Accepted / Completed Call Agencies | Count N01 | `firstProviderAcceptedAt is not empty`; same window | Acceptance/completed call, not Contacted |
+| D01-W03 Ever Pending / Unknown Agencies | Count N01 | `firstPendingUnknownAt is not empty`; same window | Ever pending; use V03 for unresolved work |
+| D01-W04 Contacted Agencies | Count N01 | Copy the approved C09 window start and checkpoint into static dashboard filter values: `firstContactedAt >= WINDOW_START_STATIC` and `< CHECKPOINT_STATIC`; no Person/Event grouping | Canonical unique Contacted numerator for 333/1,000 |
+| D01-W05 Engaged Agencies | Count N01 | `firstEngagedAt is not empty`; checkpoint window | Unique two-way engagement |
+| D01-W06 Opportunity Funnel | Count N03 | Group `stage`; no amount or commercial fields | Pursuit count by canonical stage |
+| D01-W07 Demo Performance | Count N03 | Group by `demoOccurredAt` present/empty and approved cohort; exclude hidden commercial fields | Demo scheduled/completed baseline; conversion is reviewed from counts |
+| D01-W08 Due Support | Count C05 | Same open-status/urgent-or-due filter as V06; group `priority` | Current response workload, not capture denominator |
+| D01-W09 Captured Support Receipts | Count C06 | All records by unique `receiptKey`; group `receiptDisposition` | CRM-side support denominator including duplicate/non-support |
+| D01-W10 Overdue Tasks | Count N04 | Incomplete Task and due time `< now`; group assignee | Accountable workload |
+| D01-W11 Reviewed Eligible Supply | Count N01 | `agencyLifecycle = Imported / Uncontacted`; `agencyDisposition = Eligible`; `isSuppressed = false` | Supply inventory, never Contacted |
+| D01-W12 Open Operational Exceptions | Count C08 | `status in New, Investigating, Blocked, Reopened`; exclude commercial-only evidence fields; group `capability` | Visible capability risk |
+
+Layout order is D01-W08, D01-W12, D01-W10, D01-W04, D01-W01–W03, D01-W05–W07,
+D01-W09, D01-W11 so risk/customer obligations precede volume.
+
+D01-W04 does not compare N01 dynamically with a C09 record. At each approved Day-0,
+Day-30, or Day-90 policy review, copy the approved instants into
+`WINDOW_START_STATIC` and `CHECKPOINT_STATIC`, record both timestamps and the C09
+`policyVersion` in the protected change evidence, and update the widget only through
+that approved policy-review change. A viewer, workflow, or routine dashboard editor
+must not advance either value.
+
+#### D02 `CRM · Planner Supply and Capacity`
+
+Share D02 only if every widget uses ROLE-OP-visible data. Add:
+
+1. reviewed eligible unsuppressed N01 count grouped by `originalAcquisitionSource`;
+2. N01 source-batch counts grouped by `acquisitionCohorts`;
+3. unique N01 Contacted count using `firstContactedAt`, never Event/Person rows;
+4. open C08 Import/Integration exceptions by owner and due date;
+5. incomplete N04 capacity/source-review Tasks by assignee and due date; and
+6. a text tile naming the active C09 policy version and checkpoint timezone, without
+   capacity inputs, role-holder identities, retention values, or commercial targets.
+
+Do not create a workspace-shared commercial dashboard. ROLE-CS/ROLE-AR use V07A,
+V07B, V09, and V12 for gross booked, waived, refunded/reversed, net collected,
+renewal, activation, adoption, and Opportunity-grain source review. ROI uses C04
+`netCollected`, one N03 `primarySource`, and non-additive `influencedSources`; never
+sum revenue once per influenced source.
+
+For both dashboards define:
+
+- empty: show zero with the metric definition and link to its source view; never hide
+  a zero or replace it with a success statement;
+- loading/error: show no stale total as current; record the last successful refresh
+  time, stop the affected decision, and open C08 when the failure persists;
+- permission mismatch: unshare the dashboard or remove the widget immediately,
+  capture only scrubbed configuration evidence, and run the U2 denial probes;
+- drill-down: must land on the exact filtered native view and preserve role-based
+  field restrictions.
+
+### Task and Note recipes
+
+Tasks are accountable work, not lifecycle state. Every Task requires `title`,
+assignee, due timestamp, status, and one primary related N01/N03/C04/C05/C08 record.
+The title contains no sensitive value.
+
+| ID / title pattern | Relation and assignee | Required body fields | Completion evidence |
+| --- | --- | --- | --- |
+| T01 `Support · <case reference> · respond` | C05; Case owner | priority, response target, next action | Substantive-response action reference; acknowledgement alone is insufficient |
+| T02 `Exception · <capability> · reconcile` | C08; exception owner | last trusted state reference, due/escalation, required gate | Reconciliation evidence and explicit `resumeSharedException` reference |
+| T03 `Sales · <opportunity reference> · next action` | N03; Opportunity owner | next action and due time | Guarded transition/outreach evidence or reasoned reschedule |
+| T04 `Commercial · <agreement reference> · review` | C04; ROLE-CS owner | restricted evidence reference and due time; never amount in title | Guarded Agreement action reference |
+| T05 `Source · replenish reviewed supply` | C01/C09; source-supply owner | yield, dated source action, gate date | Updated approved supply decision |
+| T06 `Capacity · weekly forecast` | C09; capacity owner | available operator time, observed Agency/Case time, required pace | Recorded staffing/rotation/scope decision |
+| T07 `Suppression · legal review` | N01/N02; ROLE-LC | evidence reference and review due time; no retry instruction | `clearSuppression` action or retained-suppression decision |
+| T08 `Activation or adoption · review` | C04; ROLE-CS owner | expected evidence and due time; no entitlement mutation | Guarded activation/adoption action or owned exception |
+| T09 `Official-channel exception · <Agency or Contact reference> · follow up` | N01 or N02; Operator who owns the follow-up | official or personal exception channel, source time, participants by CRM record reference, minimal evidence reference, outcome, next action, and due time; no phone number or message content | NTE01 reference plus guarded outreach outcome or an explicit no-contact/escalation decision |
+
+Use Notes only for concise human context visible to every reader of the related
+record. Never copy commercial values into a shared Note.
+
+| ID / exact Note heading | Required content | Prohibited content |
+| --- | --- | --- |
+| NTE01 `Official-channel exception` | source time, participants by CRM record reference, channel, minimal evidence reference, outcome, next action, owner | message transcript, personal number, attachment, secret, unnecessary PII |
+| NTE02 `Operational handoff` | last trusted state, completed action references, next action, owner, due/escalation | hidden commercial, suppression, MFA, credential, or provider payload |
+| NTE03 `Source context` | source/event references, reviewed classification decision, reviewer and time | raw source row, guessed identity, copied spreadsheet content |
+| NTE04 `Meeting or call summary` | occurred-at, CRM participant references, outcome, next action, owner | recording/transcript unless separately approved; payment or identity documents |
+
+Commercial notes remain C04 `restrictedNotes`; suppression evidence remains protected
+fields; privileged audit/recovery evidence remains the U2/U9 evidence path.
+
+### Notification-only workflow recipes
+
+Native workflow record searches are capped at 200 records. Every workflow below sets
+an explicit maximum of 200, sorts the most urgent records first, and sends a
+notification only. It never changes lifecycle, ownership, suppression, stage,
+commercial, activation, adoption, renewal, Case, receipt, or exception state. If a
+search returns 200, the notification must say `SEARCH CAP REACHED` and direct the
+owner to the complete native view and a manual C08 capacity/integration exception;
+the workflow output must not be reported as a complete count.
+
+| ID / exact name | Schedule/search | Recipient and notification |
+| --- | --- | --- |
+| WF01 `CRM · Pending Unknown due` | Every 30 minutes; C07 Pending/Unknown with `pendingExpiresAt <= now + 2 hours`; sort expiry ascending; 200 max | Event operator and communication owner: event reference, deadline, next action; no message body |
+| WF02 `CRM · Support response due` | Every 15 minutes; C05 open status with `responseTargetAt <= now + 30 minutes` OR Urgent; sort priority then target; 200 max | Case owner and support escalation owner: case reference, priority, target |
+| WF03 `CRM · Renewal activation due` | Daily in C09 business timezone; C04 due within 30 days or activation Pending/Review Required; sort next action/renewal ascending; 200 max | ROLE-CS renewal owner only; Agreement reference and due action, no amount |
+| WF04 `CRM · Sales action overdue` | Daily in C09 business timezone; N03 active stage and `nextActionAt < now`; sort due ascending; 200 max | Opportunity owner and sales owner: Opportunity reference and next action |
+| WF05 `CRM · Exception due` | Hourly; C08 active status and `dueAt <= now + 2 hours`; sort due ascending; 200 max | Exception owner and escalation owner: capability, reference, due time |
+| WF06 `CRM · Weekly source capacity review` | Weekly at the C09-approved business time; search the one active C09 record; 200 max | Source-supply owner, capacity owner, planner: open V11A/V11B and D02; record go/no-go |
+| WF07 `CRM · Weekly audit policy review` | Weekly at approved business time; C08 Audit/Security/Recovery active, sort due; 200 max | ROLE-AR and recovery owners: open V10A and verify policy/audit gate |
+| WF08 `CRM · Personal channel follow-up due` | Hourly; incomplete N04 Tasks whose title begins exactly `Official-channel exception ·` and due `< now`; 200 max | Task owner: record reference and due time only |
+
+Reservation expiry is the single launch state-changing automation exception. It is
+not a U3 native workflow: the bounded, idempotent U5 expiry job alone may change N01
+`reservationStatus` from Claimed to Expired after the C09 interval. It must not set a
+durable owner, contact metric, new claimant, Task, or outbound action. All other U3
+workflows remain notification-only.
+
+### Daily operating procedures
+
+#### Operator and Commercial Sensitive queue order
+
+1. Open D01. Confirm the viewer-local timezone, last refresh, and absence of a
+   permission/error banner.
+2. Work V06 Urgent/overdue Support and assigned V10B security/integration exceptions
+   first. Source receipts remain authoritative if the view fails.
+3. ROLE-CS works V07A/V07B due renewal and activation next; ROLE-OP works only an
+   assigned T08 that contains no restricted commercial value.
+4. Work V08 overdue owned sales actions. Use the typed guarded action; never edit a
+   protected field to clear the queue.
+5. Reconcile V03 Pending/Unknown before any retry. After expiry, require the visible
+   reasoned-retry path and keep Contacted unchanged without qualifying evidence.
+6. Only then select eligible work from V01 and claim through `claimAgency`. Confirm
+   V02 shows exactly one active claimant before outreach.
+7. Record manual official/personal-channel exceptions with NTE01 and a dated Task.
+8. End the shift with every active Case, reservation, Opportunity, and exception
+   having an owner and dated next action, or an explicit escalation.
+
+Queue volume never overrides suppression, identity, evidence, legal, audit, recovery,
+or capacity gates.
+
+#### Planner, data-owner, Audit Reviewer, and recovery review
+
+1. Open V10A/V10B for audit, security, recovery, and integration risk. A recovery,
+   monitoring, exposure, or reconstructability failure pauses restricted rollout.
+2. Open V05; resolve or keep quarantined every identity decision without automatic
+   merge.
+3. Review V11A, V11B, and D02. Calculate weekly required pace for 333 Day-30 and
+   1,000 Day-90 Contacted Agencies from the policy checkpoint, current unique
+   Contacted count, reviewed-to-contactable yield, dated replenishment, available
+   operator time after higher-priority work, and observed time per Agency/Case.
+4. If supply is short, choose approved source acquisition, target/timeline revision,
+   or stopped scale-up. If capacity is short, change staffing, rotation, or rollout
+   scope. Never relax identity, suppression, legal, or risk-first priority.
+5. ROLE-CS/ROLE-AR review V09 and V12 plus V07A/V07B. Keep commercial evidence,
+   adoption, and target decisions outside shared dashboards.
+6. At Day 30, lock the target generated by the Day-0-approved formula and evidentiary
+   floor. At Day 90, report pass/fail against that unchanged target separately from
+   narrative variance and create the named product decision on failure.
+7. Sample off-CRM support/manual-channel evidence against C06/NTE01, report omissions,
+   capture latency, duplicates, workflow adherence, and observed effort, and let
+   failed thresholds stop scale-up.
+8. Review parallel tracker retirement only after Twenty proves the tracker's purpose
+   through reconciled records and the owning gate.
+
+### Keyboard, empty, and error-state smoke contract
+
+For every V01–V12 and D01–D02 surface, test as each allowed role at desktop width:
+
+1. Use native left navigation and view/dashboard selectors without a pointer.
+2. Use Tab/Shift+Tab to reach the view selector, filters, groups, sort controls,
+   table rows/cards, pagination, drill-down, and permitted command button; activate
+   with Enter/Space and return with Escape/browser Back.
+3. Confirm focus remains visible, follows DOM order, returns to the invoking control
+   after close/error/success, and does not enter hidden commercial controls.
+4. Verify populated, empty, loading, permission-denied, and source/query-error states.
+   Empty must mean the exact filter has zero rows, not that data failed to load.
+5. On partial/error state, do not take state-changing action from the incomplete
+   surface. Refresh once, preserve last trusted state, assign C08, pause only the
+   affected capability unless recovery/exposure/reconstructability requires broader
+   pause, and resume explicitly after evidence passes.
+
+U5/U6 record commands are future dependencies: U3 records their required keyboard
+path and expected placement but cannot claim their runtime behavior before those
+units land.
+
+### Reconciled synthetic fixture totals
+
+Use fictitious records only. The disposable fixture must produce these exact totals:
+
+| Fixture | Records | Expected native result |
+| --- | --- | --- |
+| Outreach | Six Agencies: one Attempted only; one Provider Accepted only; one Pending/Unknown; one reached call; one delivered email later Engaged; one Agency with two Contacts and two qualifying events | Attempted 6; Provider Accepted/Completed Call 4; ever Pending/Unknown 1; unique Contacted 3; unique Engaged 1. The multi-Contact Agency counts once. |
+| Opportunity attribution | The multi-Contact Agency has one Opportunity, one Primary Source, two non-additive Influenced Sources, and one Agreement | Funnel Opportunity 1; Agreement revenue represented once; ROI uses one Agreement `netCollected` against its Primary Source and never triples revenue. |
+| Support | Six unique source `receiptKey` values: two attach to one verified open Case; one new late Case; one duplicate disposition; one non-support disposition; one unknown-identity owned Case | C06 denominator 6; C06 captured 6; Cases 5; duplicate 1; non-support 1; unknown identity 1. Replaying any key leaves all totals unchanged. |
+| Shared visibility | One restricted Agreement with payment/private-note values related to a broadly visible Agency and Case | ROLE-OP sees Agency/Case and identical safe D01 totals, but no restricted value, widget, tooltip, filter, URL, export, or drill-down leakage. ROLE-CS sees the protected object view. |
+| Source/capacity stop | Policy inputs cannot support the required weekly pace | D02 shows only safe supply/work counts; review records stopped scale-up or an owned staffing/rotation/scope/source correction without changing Contacted totals. |
+
+Record source-view row count, dashboard value, fixture expectation, viewer timezone,
+role, timestamp, and pass/fail. Delete synthetic records and screenshots containing
+record content after the smoke.
+
+### U3 creation and rollback
+
+1. Export the U1/U2 disposable baseline and record its scrubbed hash.
+2. Create V01–V12, then D01/D02, then T01–T09/NTE01–NTE04 templates, then
+   WF01–WF08. Do not enable a workflow until its 200-cap and recipients are verified.
+3. Load the synthetic fixture, run role-by-role desktop smoke, reconcile the exact
+   totals, and rerun U2 commercial-field denial probes through dashboard drill-down.
+4. Disable WF08→WF01 in reverse order before rollback. Remove D02/D01 widgets and
+   dashboards, then V12→V01, and delete only synthetic Tasks, Notes, and records.
+5. Restore the U1/U2 baseline in the disposable workspace and compare its hash.
+6. In an approved live change, never delete real Tasks, Notes, or history to undo a
+   surface. Disable notifications, unshare/remove leaking widgets, hide the affected
+   view, open an owned exception, and restore the last approved surface configuration.
+7. Any commercial leak requires immediate unshare/removal, session/cache review,
+   scrubbed incident evidence, U2 permission re-probe, and Audit Reviewer sign-off
+   before resharing.
+
 ## Metadata creation recipe
 
 Perform only in a disposable v2.27 workspace until the verification section passes.
@@ -918,11 +1212,11 @@ rollback result in the protected change record. Do not commit those values.
 
 ## Verification and no-test exception
 
-**No-test exception:** U1 and U2 change documentation and manual Twenty Settings
-recipes only; they change no executable behavior. Application tests would not prove
-the configured workspace role matrix, separate identities, or provider-side MFA.
-The following deterministic document checks and later disposable-workspace probes are
-the replacement evidence:
+**No-test exception:** U1–U3 change documentation and manual Twenty Settings recipes
+only; they change no executable behavior. Application tests would not prove a
+configured workspace role matrix, provider-side MFA, native view/dashboard behavior,
+viewer-local timezone, workflow recipients, or keyboard focus. Deterministic document
+checks and the later disposable-workspace browser smoke are the replacement evidence:
 
 1. `git diff --check -- docs/operations/paryatech-crm-runbook.md`
 2. Heading and identifier consistency: one H1; unique N01–N05, C01–C09, and
@@ -949,11 +1243,29 @@ the replacement evidence:
    two independent recovery Administrators, temporary-key issue/revocation and
    post-revocation denial, separate integration boundaries, browser/API probes, and
    the scrubbed signed evidence contract are present.
-7. Content safety scan: no absolute local paths, credential values, tokens, cookies,
-   MFA factors/recovery material, real email addresses, real phone numbers, raw
-   source/customer rows, message bodies, attachments, or raw probe responses.
+7. U3 surface completeness: V01–V12 including the A/B split views, D01/D02,
+   D01-W01–D01-W12, T01–T09, NTE01–NTE04, and WF01–WF08 are each declared exactly
+   once; every view row names object/audience, visible fields, exact filters,
+   group/sort, owner, empty behavior, and error behavior.
+8. U3 counting and leakage check: Contacted counts N01 `firstContactedAt`; C06 unique
+   `receiptKey` is the support denominator; duplicate/non-support/unresolved receipts
+   remain; Opportunity-grain Primary Source revenue counts once; shared dashboards
+   contain no C04/commercial/private/suppression/role-holder values or leaking
+   filters, tooltips, URLs, exports, caches, or drill-downs.
+9. U3 time/automation check: viewer-local dashboard timezone and C09 business-time
+   deadlines are distinct; every WF01–WF08 search is bounded to 200, treats a full
+   page as `SEARCH CAP REACHED`, and notifies only; bounded idempotent U5 reservation
+   expiry is the sole state-changing automation exception.
+10. U3 procedure/evidence check: risk-first operator order, planner/admin reviews,
+    populated/empty/loading/denied/error and keyboard/focus paths, exact synthetic
+    outreach/support/attribution/visibility/capacity totals, configuration order, and
+    reverse rollback are present.
+11. Content safety scan: no absolute local paths, credential values, tokens, cookies,
+    MFA factors/recovery material, real email addresses, real phone numbers, raw
+    source/customer rows, message bodies, attachments, or raw probe responses.
 
-U1–U2 documentation is complete only when these deterministic checks pass.
-Configured U2 evidence additionally requires BP01–BP18/AP01–AP18 in a disposable
-workspace and cannot be claimed by this docs-only change. Live configuration remains
-a separate approved manual change.
+U1–U3 documentation is complete only when these deterministic checks pass.
+Configured U2 evidence still requires BP01–BP18/AP01–AP18, and configured U3 evidence
+requires every allowed role to run the disposable desktop-browser smoke against the
+exact fixture totals. Neither is claimed by this docs-only change. Live configuration
+remains a separate approved manual change.
