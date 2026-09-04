@@ -4,7 +4,7 @@ type: feat
 date: 2026-09-04
 topic: paryatech-crm-operations
 artifact_contract: ce-unified-plan/v1
-artifact_readiness: requirements-only
+artifact_readiness: implementation-ready
 product_contract_source: ce-brainstorm
 execution: code
 ---
@@ -16,11 +16,15 @@ execution: code
 - **Objective:** Make Twenty Paryatech’s internal commercial and service operating spine for Indian B2C travel agencies, with enquiry-to-proposal as the first demo moment and 1,000 unique Agencies contacted within 90 days.
 - **Product authority:** Twenty owns acquisition, sales, commercial, renewal, CRM communication associations, and support truth; Google and Belo own original channel content and delivery state; ParyatechOS owns tenant, travel operations, entitlement, provisioning, and access truth.
 - **Operating approach:** Ship the contact-goal critical path independently with named non-state-changing reminders/alerts and only the R64/R99 reservation-expiry state change; prove disciplined workflows, then add separately gated mailbox, synchronization, and other evidence-led automation capabilities.
-- **Open blockers:** No product decision is outstanding; planning must select the technical mechanisms for mailbox gaps, retention, privileged audit, security controls, and existing-commercial-state cutover.
+- **Execution profile:** Deep, cross-cutting delivery across native workspace configuration, manual operating procedures, bounded migration tooling, a narrow Paryatech control module, mailbox storage/sync, and production recovery/audit.
+- **Stop conditions:** No live import before recovery/audit/role gates; no commercial authority switch with an unreconciled active ParyatechOS record; no mailbox rollout before the 90-day, attachment, scope, deletion, and recovery contract passes.
+- **Tail ownership:** Two recovery administrators own platform continuity; named data, legal/compliance, commercial, support, audit, source-supply, and capacity owners retain their separately attributable gates through Day 90.
 
 ---
 
 ## Product Contract
+
+Product Contract unchanged.
 
 ### Summary
 
@@ -781,3 +785,397 @@ Every allowed advance, return, closure, or correction uses this matrix.
 - `packages/twenty-docs/user-guide/calendar-emails/overview.mdx` and `packages/twenty-docs/user-guide/calendar-emails/capabilities/mailbox.mdx` for full-body visibility, folder scope, complete-history behavior, and contradictory attachment documentation.
 - `packages/twenty-server/src/modules/messaging/message-import-manager/drivers/gmail/utils/get-attachment-data.util.ts` and `packages/twenty-server/src/modules/messaging/message-import-manager/drivers/gmail/services/gmail-get-message-list.service.ts` for metadata-only attachment parsing and the absence of a date-bounded initial query.
 - ParyatechOS staging product, onboarding, billing, and lead-intake documentation for existing commercial state and the tenant, entitlement, and travel-operations boundary.
+
+---
+
+## Planning Contract
+
+### Key technical decisions
+
+| ID | Decision |
+|---|---|
+| KTD1 | **Native/manual first.** Configure the one live workspace through Twenty v2.27 Settings and record the exact object, field, relation, role, view, dashboard, and workflow recipes in `docs/operations/paryatech-crm-runbook.md`. Company remains Agency, Person remains Agency Contact, Opportunity remains one pursuit, and Tasks/Notes remain accountable work. Add native custom Acquisition Source/Event, Product, Commercial Agreement, Support Case, Support Receipt, Outreach Event, Shared Exception, and CRM Operating Policy objects. |
+| KTD2 | **No private-app dependency for launch metadata.** Current v2.27 capability must be proved on the pinned image; manual metadata avoids requiring an app runtime merely to configure one workspace. Product code is reserved for invariants native metadata/forms cannot enforce. |
+| KTD3 | **One narrow server module for atomic operating invariants.** Add `packages/twenty-server/src/modules/paryatech-crm/` using synchronous workspace pre-query hooks and explicit mutations/services. It owns reservation concurrency, suppression-safe outreach outcomes and first durable ownership, guarded Opportunity/Trial/Agreement transitions, suppression clearance, and receipt-first Support Case attach-or-create. It is not a generic rules or automation framework. |
+| KTD4 | **Protected fields are not directly writable.** Operator/commercial roles cannot directly mutate lifecycle, ownership, suppression-clearance, payment, activation, adoption, renewal, or Case-resolution fields. Named mutations validate actor, current state, evidence, and related records in one transaction; rejected transitions preserve the prior state and return the Product Contract correction path. |
+| KTD5 | **Only reservation expiry is automated state change.** A bounded scheduled job changes Claimed to Expired. Native workflows provide named notification-only reminders/alerts; they never infer or mutate identity, qualification, stage, commercial, activation, adoption, renewal, suppression, or Case resolution. |
+| KTD6 | **Restricted one-off import tooling.** Build local tooling under `deploy/dokploy/twenty/import/`; source files, staging data, decisions, and logs remain outside Git in encrypted `0600` storage. It produces provenance-preserving review records and ordered, idempotent API payloads; it is not a runtime sync service. |
+| KTD7 | **Bounded commercial mutation freeze.** Stage every active ParyatechOS commercial record, resolve conflicts, freeze commercial writes, take a final snapshot/delta, import and reconcile, then switch the global human write boundary to Twenty. ParyatechOS remains entitlement/provisioning authority. Any unresolved active row blocks the switch; only inactive history may remain quarantined. |
+| KTD8 | **Narrow mailbox core change, not a second Gmail importer.** Extend the existing Gmail/calendar pipeline with an exact configurable 90-day initial cutoff, provider attachment retrieval, bounded hostile-file policy, R2-backed Attachment records related to Message, a message-authorized attachment access path, in-thread restricted download UI, and mirror cleanup. U8 completes code and verification but publishes nothing alone; Release B in U13 integrates U5, U6, and U8. |
+| KTD9 | **Provider-mirror retention is the approved launch architecture.** Accepted Gmail attachments are retrievable only from an actor-authorized related Message after type/size/magic-byte validation. Mismatched, active, oversized, or unsupported content retains quarantined metadata and cannot render/download. Provider deletion, folder removal, or disconnection removes the Twenty mirror and stored R2 object. U1 requires named data-owner acceptance of that deletion behavior; rejection stops mailbox implementation for a Product Contract revision. Independent archival retention is outside this plan. |
+| KTD10 | **Dedicated customer-facing primary calendar.** Because v2.27 Google import is fixed to `calendarId: 'primary'`, `team@paryatech.in` uses a primary calendar containing only approved customer-facing events. The same initial-lookback setting adds `timeMin` for first sync; ongoing cursor sync remains unchanged. A non-dedicated primary calendar blocks calendar rollout. |
+| KTD11 | **Boring audit path.** Deploy private, persistent ClickHouse and procure a valid self-hosted Enterprise `AUDIT_LOGS` entitlement. Add write-only application ingestion, read-only auditor access, protected retention/deletion, encrypted backup, and external immutable backup identity. No equivalent audit branch is planned; missing entitlement is an external blocker for high-risk/restricted rollout. |
+| KTD12 | **Contact evidence is explicit.** SMTP/provider acceptance is Provider Accepted, never Contacted. Confirmed delivery or approved reconciled delivery, a reached call, or inbound conversation creates Contacted; a reply/two-way exchange additionally creates Engaged. Pending / Unknown lasts at most two business days, keeps exception/cooldown protection, and permits only a reasoned visible retry after expiry. |
+| KTD13 | **Native desktop surfaces plus the smallest guarded-action layer.** Keep native views, dashboards, record layouts, tasks, and notes. Because protected fields make raw record editing unsafe, add only a typed Twenty record-command layer for every U5/U6 mutation: permission-aware availability, evidence/reason forms, submit progress, success state, and actionable server-error state. Identity adjudication remains restricted staging output plus recorded decisions. Add no custom dashboard, mobile, campaign, scoring, ParyatechOS, or Belo UI. |
+
+### Execution boundaries and stop conditions
+
+1. Integrate the existing `twenty-dokploy-deployment` branch first so `deploy/dokploy/twenty/docker-compose.yml`, `deploy/dokploy/twenty/backup/`, and `docs/operations/twenty-dokploy-runbook.md` are present before modifying them. Do not reconstruct the live configuration from memory.
+2. Keep the current immutable v2.27.0 image while creating the product branch from the exact v2.27.0 source tag/commit matching that image. **Release A** follows U5+U6 verification and contains the guarded server mutations plus frontend record actions; it enables U11 without mailbox code. **Release B** is published only in U13 after U5+U6+U8 verification and contains the mailbox implementation. Each immutable `ghcr.io/vimaksh-technologies/twenty:<release-or-SHA>` release records base tag, base commit, patch commit, image digest, previous/rollback digest, migration set, and smoke evidence.
+3. U8 may complete in parallel but must not publish an image or alter production mailbox behavior alone. Release A remains the rollback target until Release B and the mailbox gate pass.
+4. Do not write production records until two individual recovery administrators, least-privilege roles, a fresh database/file backup, a full isolated core restore, permanent monitoring owners, encrypted-at-rest proof, and the ClickHouse entitlement/audit gate pass.
+5. Do not scale outreach until legal/compliance approval, suppression probes, source sufficiency, capacity forecast, and channel evidence pass. A failed capability gate pauses only that capability unless recovery, audit, restricted exposure, or reconstructability fails.
+6. Do not switch commercial authority until reconciliation reports zero unresolved active ParyatechOS records across the final freeze snapshot. Never create an undeclared record-level authority split.
+7. Manual outreach and Release A remain independently shippable, but final Definition of Done requires Release B plus U8/U13 mailbox Open. ParyatechOS/Belo synchronization, independent archival retention, scoring, campaign/sequence behavior, custom dashboards/mobile UI, and generic automation remain excluded.
+
+### Rollout-supplied inputs
+
+U1 stores the approved business calendar, reservation interval, pilot thresholds, source batch, provider-mirror retention acceptance, role holders, tracker names, capacity inputs, and legal/data-owner approvals in a restricted CRM Operating Policy record. Before U8 starts, the named data owner must accept that provider deletion, folder removal, or disconnection removes the Twenty message/attachment copy; rejection stops implementation for a Product Contract revision. Day 0 also records the commercial formula, evidentiary floor, accountable owner, and Day-30 lock date. These are execution-gate inputs, not unresolved product decisions or hard-coded defaults; Pending / Unknown remains capped at two business days.
+
+---
+
+## High-Level Technical Design
+
+### Responsibility split
+
+| Boundary | Repository or live surface | Responsibility |
+|---|---|---|
+| Native workspace configuration | Twenty Settings plus `docs/operations/paryatech-crm-runbook.md` | Objects, fields, relations, roles, views, dashboards, notification-only workflows, operating procedures |
+| Deployment configuration | `deploy/dokploy/twenty/` and `docs/operations/twenty-dokploy-runbook.md` | Immutable services, Google/SMTP settings, ClickHouse, backup, restore, monitoring, secrets |
+| Safe migration tooling | `deploy/dokploy/twenty/import/` | Inert parsing, normalization, candidate generation, adjudication files, ordered idempotent import, reconciliation, rollback manifests |
+| Necessary operating controls | `packages/twenty-server/src/modules/paryatech-crm/` plus `packages/twenty-front/src/modules/paryatech-crm/` and record-command registration | Atomic reservation/outreach, protected transitions, support receipt attach-or-create, and usable permission-aware evidence/reason actions |
+| Necessary mailbox support | Existing messaging/calendar/file/Attachment paths plus a dedicated message-attachment authorization path and email-thread UI | 90-day initial bound, attachment retrieval/storage/quarantine/actor authorization/cleanup, calendar initial bound |
+| Explicitly unchanged | ParyatechOS/Belo integrations and campaign/scoring surfaces | Phase 2 evidence only; no adapter delivery |
+
+```mermaid
+flowchart LR
+  OP["Individual operator"] --> V["Native views / dashboards / records"]
+  V --> M["Paryatech guarded mutations"]
+  M --> DB["Twenty workspace records"]
+  SRC["Encrypted source files"] --> I["One-off stage / review / import tool"]
+  I -->|scoped API key| M
+  G["Google Gmail / Calendar"] --> S["Existing sync + 90-day bound"]
+  S --> F["Attachment policy + R2 storage"]
+  F --> DB
+  DB --> A["Native history + ClickHouse audit"]
+  POS["ParyatechOS commercial snapshot"] --> I
+  DB -. "manual entitlement confirmation only" .-> POS
+```
+
+### Runtime invariant path
+
+```mermaid
+sequenceDiagram
+  participant U as Authorized user
+  participant R as Paryatech resolver/service
+  participant T as Workspace transaction
+  participant H as History/ClickHouse
+  U->>R: Named action + target + evidence + reason
+  R->>T: Read role, current state, suppression, relations, evidence
+  alt exact allowed transition
+    R->>T: Commit record, event/receipt/exception, and derived ownership together
+    T-->>H: Emit audited changes
+    R-->>U: New state and next action
+  else missing, stale, conflicting, or unauthorized
+    R-->>U: Reject with prior state unchanged and correction path
+  end
+```
+
+Reservation uses a row lock/conditional update on the Agency record, so two claims cannot both succeed. `recordOutreachOutcome` creates one Outreach Event and sets Agency first-contact/durable owner only for the first qualifying Contacted evidence. Support intake keys every source receipt by channel plus provider/source identifier; a replay returns the existing Case, while a new receipt attaches to a user-verified open Case or creates an owned Case even when all business associations are unknown.
+
+### Mailbox storage path
+
+The Gmail list service appends a cutoff derived from `MESSAGING_INITIAL_SYNC_LOOKBACK_DAYS=90` only when no sync cursor exists; cursor/history sync remains unbounded forward from the accepted cursor. Google Calendar initial sync uses the same clock/cutoff as `timeMin`; incremental tokens remain authoritative afterward.
+
+For each accepted Gmail message, the existing parser returns attachment metadata. The Gmail importer fetches bytes from `users.messages.attachments.get`, validates filename, declared MIME, extension, magic bytes, and limits, and writes accepted content to R2 under a dedicated `FileFolder.MessageAttachment` path without creating a generic Files-field URL. Attachment stores the internal file ID, provider ID, MIME, size, safety state, and Message relation. The thread UI obtains metadata and an actor-bound short-lived download grant only through the message-attachment resolver. That resolver loads Attachment→Message and evaluates current message-channel visibility plus `DOWNLOAD_FILE`; denial returns neither metadata nor URL. The authenticated download controller revalidates actor, workspace, relation, visibility, permission, token binding, and expiry, then always sends `Content-Disposition: attachment`. The generic file route rejects `MessageAttachment`; a stale or leaked grant cannot be used by another actor. Provider deletion, folder removal, and connected-account cleanup delete Attachment and R2 content.
+
+```mermaid
+flowchart TD
+  L["Initial Gmail list"] --> Q["Folder exclusion + after:<90-day cutoff>"]
+  Q --> GM["Fetch message"]
+  GM --> AM["Parse attachment metadata"]
+  AM --> GET["Gmail attachment get"]
+  GET --> P{"size/type/name/magic allowed?"}
+  P -->|yes| R2["Dedicated MessageAttachment / R2"]
+  R2 --> AR["Attachment → Message"]
+  P -->|no| QR["Quarantined metadata; no normal access"]
+  AR --> AUTH["Actor visibility + DOWNLOAD_FILE"]
+  AUTH --> UI["Metadata + attachment-only download"]
+  DEL["Provider delete / folder removal / disconnect"] --> CLEAN["Delete relation, file, message/thread mirror"]
+  CLEAN --> R2
+```
+
+---
+
+## Implementation Units
+
+### Unit Index
+
+| Unit | Category | Deliverable | Depends on | Coverage |
+|---|---|---|---|---|
+| U1 | Native/manual | Workspace objects, fields, relations, controlled vocabularies, policy record | rollout inputs | R1–R10, R20, R23–R35, R49, R63, R69, R73–R74, R98, R100–R101, AE17 |
+| U2 | Native/manual | Roles, individual identities, protected fields/actions, MFA/recovery proof | U1 | R43–R47, R49, R83–R84, R87–R94, R102–R103, F7, F11, AE4, AE12, AE29 |
+| U3 | Native/manual | Views, dashboards, tasks/notes, priority queues, notification-only workflows | U1–U2 | R6, R41, R53, R55–R56, R59–R60, R63, R66–R80, R94–R101, R103, F11–F12, AE11, AE17, AE20–AE21, AE23, AE28 |
+| U4 | Migration | Staging, normalization, adjudication, ordered idempotent Agency import | U1–U2 | R9–R10, R14–R19, R61–R62, R65–R67, R76, R86–R88, R98, F1, AE1–AE2 |
+| U5 | Product extension | Atomic reservation, suppression, outreach evidence, first ownership, guarded contact actions | U1–U2 | R10–R13, R40–R41, R49, R53, R61–R64, R68, R79, R91, R98–R100, R103, F2, F7–F8, AE3–AE4, AE18, AE26 |
+| U6 | Product extension + Release A | Guarded sales/commercial/support transitions and complete desktop action layer | U5 | R20–R35, R41, R45, R49–R52, R55, R61–R62, R68–R75, R79, R96–R100, R103, F3–F5, F7–F8, F11, AE5–AE7, AE13–AE15, AE19, AE22, AE24–AE25, AE27 |
+| U7 | Deployment | Google OAuth/calendar and low-volume SMTP setup | U2 | R36, R38, R40, R51, R53, R57, R61–R62, R84–R85, R91, R102, F7 |
+| U8 | Product extension, no release | Exact 90-day Gmail/calendar initial history and actor-authorized attachment content/access/cleanup | U1, U2, U7; parallel to U4–U6 | R37–R39, R48, R51, R58, R61–R62, R81, R84–R89, R93, R102, F6–F7, AE8–AE9, AE29 |
+| U9 | Deployment | ClickHouse plus valid Enterprise audit entitlement and separation | U2 | R47, R49, R57, R62, R83, R87, R92, R102, F7, AE12, AE29 |
+| U10 | Deployment | Core database/file/audit recovery, encryption, monitoring, and recovery owners | U7, U9 | R43, R47, R49, R57, R61–R62, R83–R84, R87–R88, R92, R102, F7, AE12, AE25, AE29 |
+| U11 | Rollout + Release A | Pilot import and Day-0 contact/support/commercial operating proof without mailbox | U3–U7, U9–U10 | R10–R35, R40–R41, R43–R47, R49–R53, R55–R57, R61–R80, R83–R84, R86–R92, R94–R103, F1–F5, F7–F8, F11–F12, AE1–AE7, AE11, AE13–AE15, AE17–AE27, AE29 |
+| U12 | Migration/manual cutover | ParyatechOS commercial freeze, import, reconciliation, authority switch | U4, U6, U9–U11 | R26–R31, R45, R50–R52, R61–R62, R69–R73, R82, R90, R98, R102, F4, F7, F9, AE6, AE14–AE16, AE22, AE25 |
+| U13 | Release B + rollout | Integrated U5/U6/U8 mailbox release, Day-30/Day-90 decisions, Phase-2 gate record | U8, U11–U12 | R37–R39, R42, R48, R51–R52, R54, R58–R62, R66–R82, R84–R90, R92–R94, R98–R103, F6–F7, F10–F12, AE8–AE12, AE20–AE21, AE23, AE25, AE28–AE29 |
+
+Actors A1–A9 participate exactly as defined in the Product Contract. The table covers R1–R103, F1–F12, and AE1–AE29; unit acceptance must use the original actor definitions and may not introduce a substitute success measure.
+
+### U1. Configure the native record model
+
+**Goal:** Establish the approved vocabulary and relations before any live data.
+
+**Files:** `docs/operations/paryatech-crm-runbook.md` (create: exact metadata inventory, field types, select values, relations, requiredness, policy inputs, creation order, rollback).
+
+**Approach:**
+- Configure Company as Agency, Person as Contact, Opportunity as pursuit, and native Task/Note activity. Add custom Acquisition Source/Event, Product, Commercial Agreement, Support Case, Support Receipt, Outreach Event, Shared Exception, and CRM Operating Policy.
+- Put original acquisition/lifecycle/disposition/suppression and Agency-level metric timestamps on Company; role/channel/suppression on Person; exact stage/Trial/evidence/Primary and Influenced Sources on Opportunity.
+- Outreach Event is the evidence grain for the five metrics. Agreement owns commercial/payment/renewal/activation/adoption evidence. Support Receipt owns the immutable channel/provider-or-source key, source timestamp, payload hash, and Case relation. Case permits null Agency/Contact/Product/Agreement while requiring subject, summary, channel, priority, response target, owner, status, escalation, and disposition.
+- Create stable external/source keys and unique constraints before import. Do not store raw hostile rows, secrets, payment instruments, bank/UPI data, unnecessary identity documents, or provider bodies in business fields.
+- Record the named data owner’s provider-mirror retention acceptance before U8: provider deletion, folder removal, or disconnection removes the Twenty message/attachment copy. A rejection is a hard stop for Product Contract revision, not an archive implementation branch.
+
+**Test Scenarios:** exact lifecycle values with no Trial/Nurture stage; null Case associations; replay-safe unique Support Receipt keys; separate five outreach outcomes; one Primary Source with non-additive influences (AE17); commercial evidence fields; Shared Exception resume evidence; accepted and rejected provider-mirror retention decisions, with rejection blocking U8.
+
+**Verification:** Export a scrubbed metadata inventory, recreate it in a disposable v2.27 workspace, compare object/field/relation/select definitions, record production IDs, and retain the named data-owner mirror-retention decision in the runbook.
+
+### U2. Configure roles, identities, and protected fields
+
+**Goal:** Prove least privilege before restricted data.
+
+**Files:** `docs/operations/paryatech-crm-runbook.md` (role matrix, individual account/MFA onboarding, deprovisioning, recovery, API-key scopes).
+
+**Approach:** Configure Operator, Commercial Sensitive, Legal/Compliance, Audit Reviewer, and per-integration roles using object/field/action permissions. Deny Operator Agreement/commercial fields, destroy, export, data model, roles, workflows, connected accounts, and settings. Deny direct edits to all U5/U6 protected fields. Use individual accounts, Google Workspace/IdP MFA enforcement plus access review, two protected recovery administrators, and temporary least-privilege import keys.
+
+**Test Scenarios:** allowed/denied probes for each role; commercial visibility; suppression clearance; transition mutation authorization; export/destroy/settings denial; API key cannot access mailbox/audit/admin; revocation and second-admin recovery.
+
+**Verification:** Browser and API probes with separate test identities; retain a scrubbed signed role matrix.
+
+### U3. Configure native operating surfaces
+
+**Goal:** Make risk-first work and required measures visible without custom dashboards.
+
+**Files:** `docs/operations/paryatech-crm-runbook.md` (view/dashboard/workflow recipes and daily procedure).
+
+**Approach:** Create shared pool, active reservation, Pending / Unknown, suppression, identity quarantine, due support, renewal/activation, overdue sales, commercial staleness, audit/security exception, source/capacity, and adoption views. Build workspace-wide dashboards only from fields visible to every viewer; keep restricted commercial review in permission-protected object views. Count unique Contacted Agencies from Company qualifying evidence and support capture from source receipts/Cases. Configure only named notification reminders; respect the 200-record workflow search limit and viewer-local dashboard timezone.
+
+**Test Scenarios:** Attempted > Provider Accepted > Contacted > Engaged fixture remains distinct; duplicate/non-support Case remains denominator; Primary Source revenue counts once; restricted widgets do not leak; keyboard-only navigation reaches each priority queue.
+
+**Verification:** Role-by-role desktop browser smoke for empty/populated/error states and reconciled fixture totals.
+
+### U4. Build safe Agency import tooling
+
+**Goal:** Convert approved files into reviewed canonical records without losing provenance or executing content.
+
+**Files:** create `deploy/dokploy/twenty/import/package.json`, `tsconfig.json`, `vitest.config.ts`, `prepare-import.ts`, `import-approved.ts`, `reconcile-import.ts`, `types.ts`, `normalizers.ts`, `candidate-matcher.ts`, and `__tests__/prepare-import.spec.ts`, `__tests__/import-approved.spec.ts`, `__tests__/reconcile-import.spec.ts`; update `docs/operations/paryatech-crm-runbook.md`.
+
+**Approach:** Accept only approved CSV/XLSX from encrypted `0600` storage; hash file/rows; preserve batch/sheet/row/cell type/display value; neutralize formulas/active content; bound type/size; normalize names/email/domain/phone/postcode without losing raw-safe provenance. Produce side-by-side candidates but never auto-merge. Record only Confirm Existing Agency, Create New Agency, Reject Match, Keep Separate Contacts, or Quarantine with Reason, with reopen before apply. Apply Source → Company → Person → relations using stable keys and a temporary scoped API key; import creates no Opportunity, reservation, owner, or contact metric. Reconcile counts, keys, relations, hashes, decisions, and samples; revoke the key.
+
+**Test Scenarios:** numeric phone/postcode preservation; Unicode/whitespace/email/domain normalization; inert formula/macro/oversize input; ambiguous categories; multi-signal candidates; all five decisions/reopen; Company-before-Person order; quarantine exclusion; partial retry/idempotency; no raw PII in logs.
+
+**Verification:** Synthetic tests, then dry-run/pilot/reconcile the approved batch with zero unexplained count/key differences.
+
+### U5. Implement atomic reservation and outreach controls
+
+**Goal:** Prevent collision/suppressed contact and make first qualifying contact the only durable-ownership transition.
+
+**Files:** server — create `packages/twenty-server/src/modules/paryatech-crm/paryatech-crm.module.ts`, `packages/twenty-server/src/modules/paryatech-crm/resolvers/paryatech-crm.resolver.ts`, `packages/twenty-server/src/modules/paryatech-crm/resolvers/__tests__/paryatech-crm.resolver.integration-spec.ts`, `packages/twenty-server/src/modules/paryatech-crm/services/agency-contact-control.service.ts`, `packages/twenty-server/src/modules/paryatech-crm/dtos/claim-agency.input.ts`, `packages/twenty-server/src/modules/paryatech-crm/dtos/release-agency.input.ts`, `packages/twenty-server/src/modules/paryatech-crm/dtos/record-outreach-outcome.input.ts`, `packages/twenty-server/src/modules/paryatech-crm/exceptions/paryatech-crm.exception.ts`, `packages/twenty-server/src/modules/paryatech-crm/jobs/agency-reservation-expiry.job.ts`, `packages/twenty-server/src/modules/paryatech-crm/query-hooks/paryatech-protected-field.pre-query.hook.ts`, `packages/twenty-server/src/modules/paryatech-crm/query-hooks/paryatech-query-hook.module.ts`, `packages/twenty-server/src/modules/paryatech-crm/query-hooks/__tests__/paryatech-protected-field.pre-query.hook.spec.ts`, and `packages/twenty-server/src/modules/paryatech-crm/services/__tests__/agency-contact-control.service.spec.ts`; update `packages/twenty-server/src/modules/modules.module.ts` and `packages/twenty-server/src/engine/metadata-modules/command-menu-item/enums/engine-component-key.enum.ts`.
+**Files — frontend action layer:** create `packages/twenty-front/src/modules/paryatech-crm/graphql/queries/getParyatechCrmAvailableActions.ts`, `packages/twenty-front/src/modules/paryatech-crm/graphql/mutations/claimAgency.ts`, `packages/twenty-front/src/modules/paryatech-crm/graphql/mutations/releaseAgency.ts`, `packages/twenty-front/src/modules/paryatech-crm/graphql/mutations/recordOutreachOutcome.ts`, `packages/twenty-front/src/modules/paryatech-crm/types/ParyatechCrmAction.ts`, `packages/twenty-front/src/modules/paryatech-crm/hooks/useParyatechCrmActionAvailability.ts`, `packages/twenty-front/src/modules/paryatech-crm/hooks/useExecuteParyatechCrmAction.ts`, `packages/twenty-front/src/modules/paryatech-crm/components/ParyatechCrmActionForm.tsx`, `packages/twenty-front/src/modules/paryatech-crm/components/ParyatechCrmActionResult.tsx`, and `packages/twenty-front/src/modules/command-menu-item/engine-command/record/single-record/paryatech-crm/components/ParyatechCrmSingleRecordCommand.tsx`. Update `packages/twenty-front/src/modules/command-menu-item/engine-command/constants/EngineComponentKeyHeadlessComponentMap.tsx`; regenerate operation types in `packages/twenty-front/src/generated-metadata/graphql.ts`. Create `packages/twenty-front/src/modules/paryatech-crm/hooks/__tests__/useParyatechCrmActionAvailability.test.tsx`, `packages/twenty-front/src/modules/paryatech-crm/hooks/__tests__/useExecuteParyatechCrmAction.test.tsx`, `packages/twenty-front/src/modules/paryatech-crm/components/__tests__/ParyatechCrmActionForm.test.tsx`, and `packages/twenty-front/src/modules/command-menu-item/engine-command/record/single-record/paryatech-crm/components/__tests__/ParyatechCrmSingleRecordCommand.test.tsx`.
+
+**Patterns:** follow synchronous `WorkspacePreQueryHookInstance` enforcement from `packages/twenty-server/src/modules/blocklist/query-hooks/blocklist-create-one.pre-query.hook.ts` and registration from `packages/twenty-server/src/modules/blocklist/query-hooks/blocklist-query-hook.module.ts`; use workspace transactions and typed domain exceptions. Do not use asynchronous record workflows for enforcement.
+
+**Approach:** `claimAgency` conditionally locks/updates only an unclaimed or expired Agency; `releaseAgency` validates claimant or audited administrator transfer; expiry is bounded/idempotent and the sole automatic state mutation. `recordOutreachOutcome` validates suppression, active claim, actor, channel evidence, and duplicate provider key in one transaction, creates Outreach Event, sets first Contacted/durable owner once, and creates Pending / Unknown exception/cooldown without counting Contacted. `getParyatechCrmAvailableActions` is server-authoritative for actor, object, record state, and field/action permissions; the record-command component renders only returned actions. The shared form requires action-specific evidence and reason, blocks duplicate submit while loading, closes and refreshes the record on success, and preserves input while showing the server correction path on error. Remove `SEND_EMAIL_TOOL` from Operator; calls/external messages use the guarded action.
+
+**Test Scenarios:** AE3, AE4, AE18, and AE26; two competing claims exactly one success; release/transfer/expiry history; suppressed Agency/Contact rejection; acceptance then bounce; Pending late delivery and two-business-day expiry; first qualifying contact wins once; repeated touches do not inflate Agency count; unauthorized protected-field write; unavailable actions never render; required evidence/reason validation; double-click submits once; success refreshes state; stale/unauthorized/conflict errors preserve the form and show the correction path.
+
+**Verification:** Run the server resolver/service/hook and frontend availability/execution/form/record-command specs, then execute a two-session desktop race through the actual record actions and reconcile metrics.
+
+### U6. Implement guarded sales, commercial, and support transitions
+
+**Goal:** Enforce the evidence matrix and support receipt contract atomically, expose every guarded transition through the shared desktop action layer, and publish Release A.
+
+**Files:** server — create `packages/twenty-server/src/modules/paryatech-crm/services/opportunity-transition.service.ts`, `packages/twenty-server/src/modules/paryatech-crm/services/agreement-transition.service.ts`, `packages/twenty-server/src/modules/paryatech-crm/services/support-case-intake.service.ts`, `packages/twenty-server/src/modules/paryatech-crm/services/suppression-clearance.service.ts`, `packages/twenty-server/src/modules/paryatech-crm/services/shared-exception.service.ts`, `packages/twenty-server/src/modules/paryatech-crm/dtos/transition-opportunity.input.ts`, `packages/twenty-server/src/modules/paryatech-crm/dtos/transition-agreement.input.ts`, `packages/twenty-server/src/modules/paryatech-crm/dtos/record-support-receipt.input.ts`, `packages/twenty-server/src/modules/paryatech-crm/dtos/clear-suppression.input.ts`, `packages/twenty-server/src/modules/paryatech-crm/dtos/record-substantive-response.input.ts`, `packages/twenty-server/src/modules/paryatech-crm/dtos/transition-support-case.input.ts`, `packages/twenty-server/src/modules/paryatech-crm/dtos/resume-shared-exception.input.ts`, `packages/twenty-server/src/modules/paryatech-crm/services/__tests__/opportunity-transition.service.spec.ts`, `packages/twenty-server/src/modules/paryatech-crm/services/__tests__/agreement-transition.service.spec.ts`, `packages/twenty-server/src/modules/paryatech-crm/services/__tests__/support-case-intake.service.spec.ts`, `packages/twenty-server/src/modules/paryatech-crm/services/__tests__/suppression-clearance.service.spec.ts`, and `packages/twenty-server/src/modules/paryatech-crm/services/__tests__/shared-exception.service.spec.ts`; extend `packages/twenty-server/src/modules/paryatech-crm/resolvers/paryatech-crm.resolver.ts`, `packages/twenty-server/src/modules/paryatech-crm/resolvers/__tests__/paryatech-crm.resolver.integration-spec.ts`, and `packages/twenty-server/src/modules/paryatech-crm/paryatech-crm.module.ts`.
+
+**Files — action completion and registration:** create `packages/twenty-front/src/modules/paryatech-crm/graphql/mutations/transitionOpportunity.ts`, `packages/twenty-front/src/modules/paryatech-crm/graphql/mutations/transitionAgreement.ts`, `packages/twenty-front/src/modules/paryatech-crm/graphql/mutations/recordSupportReceipt.ts`, `packages/twenty-front/src/modules/paryatech-crm/graphql/mutations/clearSuppression.ts`, `packages/twenty-front/src/modules/paryatech-crm/graphql/mutations/recordSubstantiveResponse.ts`, `packages/twenty-front/src/modules/paryatech-crm/graphql/mutations/transitionSupportCase.ts`, and `packages/twenty-front/src/modules/paryatech-crm/graphql/mutations/resumeSharedException.ts`; extend the U5 action type, form, execution hook, record command, tests, and `packages/twenty-front/src/generated-metadata/graphql.ts`. Create `packages/twenty-server/src/database/commands/upgrade-version-command/2-27/2-27-workspace-command-<generated-timestamp>-add-paryatech-crm-guarded-actions.command.ts` with `@RegisteredWorkspaceCommand`, its matching spec under `packages/twenty-server/src/database/commands/upgrade-version-command/2-27/__tests__/`, and register it in `packages/twenty-server/src/database/commands/upgrade-version-command/2-27/2-27-upgrade-version-command.module.ts`; allocate the timestamp by repository convention at execution, never fabricate it in planning.
+
+**Approach:** Expose named mutations for every allowed Opportunity/Trial transition, correction/reopen, payment/renewal, activation/adoption, suppression clearance, substantive response, Case disposition/reopen, and exception resume. Validate actor/current state/required fields/cross-record evidence in one transaction and reject every unlisted transition. `recordSupportReceipt` uses unique channel/source receipt key; replay returns the existing Case, while a new receipt attaches only to a caller-verified matching open Case or creates an owned Case immediately with null associations allowed. Seed permission-aware command-menu actions against U1 object universal identifiers; frontend availability comes from the server and every action uses the evidence/reason form with explicit loading, success, correction, authorization, stale-state, and failure behavior.
+
+**Test Scenarios:** AE5–AE7, AE13–AE15, AE19, AE22, AE24–AE25, and AE27; one pass plus missing-evidence and unauthorized cases for every matrix row; Trial never default; Part-paid/Overdue cannot win; Paid/authorized Waived may; Refund/Reversal preserves history; assignment/ack does not satisfy response; unknown sender creates Case; verified receipt attaches; replay is idempotent; duplicate/non-support is preserved; every unlisted transition is rejected. For every guarded mutation, test permission-aware visibility, required evidence/reason, exactly-once submit, success refresh, error/correction rendering, keyboard/focus behavior, and server denial despite a forged visible action.
+
+**Verification:** Run all U5/U6 server, workspace-command, generated-operation, and frontend action behavior specs; execute AE5–AE7, AE13–AE15, AE19, AE22, AE24–AE25, and AE27 through desktop record actions; build, pin, deploy, and smoke **Release A** with recorded source digest and rollback digest and mailbox synchronization still closed.
+
+### U7. Configure Google OAuth, calendar, and SMTP
+
+**Goal:** Establish scoped provider identity and low-volume transactional transport before mailbox code rollout.
+
+**Files:** update `deploy/dokploy/twenty/docker-compose.yml`, `docs/operations/twenty-dokploy-runbook.md`, and `docs/operations/paryatech-crm-runbook.md`.
+
+**Approach:** Supply `MESSAGING_PROVIDER_GMAIL_ENABLED`, `CALENDAR_PROVIDER_GOOGLE_ENABLED`, `AUTH_GOOGLE_CLIENT_ID`, `AUTH_GOOGLE_CLIENT_SECRET`, both exact callback URLs, and `EMAIL_FROM_*`/`EMAIL_DRIVER`/`EMAIL_SMTP_*` through Dokploy/admin secrets without literals in Git. Connect the true `team@paryatech.in` human mailbox; disable auto-contact creation and internal email sync; use selected customer folders and a dedicated customer-facing primary calendar. SMTP records acceptance only, never final delivery or campaign behavior. Keep code interpreter/logic functions disabled.
+
+**Test Scenarios:** OAuth consent/scopes/callback/revoke/rotate; excluded folders/internal mail; SMTP TLS authentication, provider acceptance, local failure, bounce, reply; secret-redacted logs; emergency halt.
+
+**Verification:** Staging provider smoke with scrubbed evidence; production SMTP may support Release A after U10, but mailbox/calendar synchronization remains closed until Release B.
+
+### U8. Implement bounded Gmail/calendar history and message-authorized attachment access
+
+**Goal:** Complete and verify the approved provider-mirror mailbox code on current v2.27 without publishing it independently.
+
+**Files:** initial history
+- Update `packages/twenty-server/src/engine/core-modules/twenty-config/config-variables.ts` and `packages/twenty-server/.env.example` for `MESSAGING_INITIAL_SYNC_LOOKBACK_DAYS`.
+- Update `packages/twenty-server/src/modules/messaging/message-import-manager/drivers/gmail/services/gmail-get-message-list.service.ts`; create `packages/twenty-server/src/modules/messaging/message-import-manager/drivers/gmail/services/__tests__/gmail-get-message-list.service.spec.ts`, `packages/twenty-server/src/modules/messaging/message-import-manager/drivers/gmail/utils/compute-gmail-initial-sync-query.util.ts`, and `packages/twenty-server/src/modules/messaging/message-import-manager/drivers/gmail/utils/__tests__/compute-gmail-initial-sync-query.util.spec.ts`.
+- Update `packages/twenty-server/src/modules/calendar/calendar-event-import-manager/drivers/google-calendar/services/google-calendar-get-events.service.ts`; create `packages/twenty-server/src/modules/calendar/calendar-event-import-manager/drivers/google-calendar/services/__tests__/google-calendar-get-events.service.spec.ts`.
+
+**Files — attachment import, metadata, and workspace migration:**
+- Update `packages/twenty-server/src/modules/messaging/message-import-manager/drivers/gmail/utils/get-attachment-data.util.ts`, `packages/twenty-server/src/modules/messaging/message-import-manager/drivers/gmail/services/gmail-get-messages.service.ts`, and `packages/twenty-server/src/modules/messaging/message-import-manager/drivers/gmail/messaging-gmail-driver.module.ts`; create `packages/twenty-server/src/modules/messaging/message-import-manager/drivers/gmail/services/gmail-import-attachments.service.ts`, `packages/twenty-server/src/modules/messaging/message-import-manager/drivers/gmail/services/__tests__/gmail-import-attachments.service.spec.ts`, `packages/twenty-server/src/modules/messaging/message-import-manager/drivers/gmail/utils/validate-gmail-attachment.util.ts`, and `packages/twenty-server/src/modules/messaging/message-import-manager/drivers/gmail/utils/__tests__/validate-gmail-attachment.util.spec.ts`.
+- Update `packages/twenty-server/src/modules/messaging/common/standard-objects/message.workspace-entity.ts`, `packages/twenty-server/src/modules/attachment/standard-objects/attachment.workspace-entity.ts`, `packages/twenty-shared/src/metadata/constants/standard-object-fields.constant.ts`, `packages/twenty-server/src/engine/workspace-manager/twenty-standard-application/utils/field-metadata/compute-message-standard-flat-field-metadata.util.ts`, and `packages/twenty-server/src/engine/workspace-manager/twenty-standard-application/utils/field-metadata/compute-attachment-standard-flat-field-metadata.util.ts`; create `packages/twenty-server/src/engine/workspace-manager/twenty-standard-application/utils/field-metadata/__tests__/compute-message-standard-flat-field-metadata.util.spec.ts` and `packages/twenty-server/src/engine/workspace-manager/twenty-standard-application/utils/field-metadata/__tests__/compute-attachment-standard-flat-field-metadata.util.spec.ts`.
+- Create `packages/twenty-server/src/database/commands/upgrade-version-command/2-27/2-27-workspace-command-<generated-timestamp>-add-message-attachment-relations.command.ts` as an idempotent, dry-run-capable `@RegisteredWorkspaceCommand`. Use `WorkspaceMigrationValidateBuildAndRunService` with the Message and Attachment standard flat metadata to create both relation sides; register it in `packages/twenty-server/src/database/commands/upgrade-version-command/2-27/2-27-upgrade-version-command.module.ts`. Allocate `<generated-timestamp>` by repository convention at execution; do not fabricate it. Add the matching spec under `packages/twenty-server/src/database/commands/upgrade-version-command/2-27/__tests__/` for dry-run, first apply, no-op reapply, and the repository-supported pre-command snapshot restore/rollback path rather than inventing an unsupported `down` method.
+
+**Files — authenticated message-attachment access:**
+- Add `MessageAttachment` to `packages/twenty-shared/src/types/FileFolder.ts` and its bounded policy to `packages/twenty-server/src/engine/core-modules/file/interfaces/file-folder.interface.ts`; create `packages/twenty-server/src/engine/core-modules/file/file-message-attachment/services/file-message-attachment.service.ts` and `packages/twenty-server/src/engine/core-modules/file/file-message-attachment/services/file-message-attachment.service.spec.ts`.
+- Create `packages/twenty-server/src/modules/messaging/message-attachment-access/message-attachment-access.module.ts`, `packages/twenty-server/src/modules/messaging/message-attachment-access/resolvers/message-attachment-access.resolver.ts`, `packages/twenty-server/src/modules/messaging/message-attachment-access/controllers/message-attachment-download.controller.ts`, `packages/twenty-server/src/modules/messaging/message-attachment-access/guards/message-attachment-download.guard.ts`, `packages/twenty-server/src/modules/messaging/message-attachment-access/services/message-attachment-authorization.service.ts`, `packages/twenty-server/src/modules/messaging/message-attachment-access/services/message-attachment-download-grant.service.ts`, and typed DTOs under `packages/twenty-server/src/modules/messaging/message-attachment-access/dtos/`; register the module in `packages/twenty-server/src/modules/messaging/messaging.module.ts`.
+- Create direct tests at `packages/twenty-server/src/modules/messaging/message-attachment-access/resolvers/__tests__/message-attachment-access.resolver.integration-spec.ts`, `packages/twenty-server/src/modules/messaging/message-attachment-access/controllers/__tests__/message-attachment-download.controller.integration-spec.ts`, `packages/twenty-server/src/modules/messaging/message-attachment-access/guards/__tests__/message-attachment-download.guard.spec.ts`, and `packages/twenty-server/src/modules/messaging/message-attachment-access/services/__tests__/message-attachment-authorization.service.spec.ts`. Update `packages/twenty-server/src/engine/core-modules/file/guards/file-by-id.guard.ts` and create `packages/twenty-server/src/engine/core-modules/file/guards/file-by-id.guard.spec.ts` to prove the generic file route rejects `FileFolder.MessageAttachment`.
+
+**Files — save, cleanup, and frontend:**
+- Update `packages/twenty-server/src/modules/messaging/message-import-manager/services/messaging-save-messages-and-enqueue-contact-creation.service.ts`, `packages/twenty-server/src/modules/messaging/message-import-manager/services/messaging-message-list-fetch.service.ts`, and `packages/twenty-server/src/modules/messaging/message-cleaner/jobs/messaging-message-channel-deletion-cleanup.job.ts`; create `packages/twenty-server/src/modules/messaging/message-import-manager/services/__tests__/messaging-save-messages-and-enqueue-contact-creation.service.spec.ts`, `packages/twenty-server/src/modules/messaging/message-import-manager/services/__tests__/messaging-message-list-fetch.service.spec.ts`, and `packages/twenty-server/src/modules/messaging/message-cleaner/jobs/__tests__/messaging-message-channel-deletion-cleanup.job.spec.ts`.
+- Create `packages/twenty-front/src/modules/activities/emails/graphql/queries/getAuthorizedMessageAttachments.ts` and `packages/twenty-front/src/modules/activities/emails/graphql/mutations/createMessageAttachmentDownloadGrant.ts`; update `packages/twenty-front/src/generated-metadata/graphql.ts` and `packages/twenty-front/src/modules/activities/emails/components/EmailThreadMessage.tsx`; create `packages/twenty-front/src/modules/activities/emails/components/EmailThreadMessageAttachments.tsx` and `packages/twenty-front/src/modules/activities/emails/components/EmailThreadMessageAttachments.test.tsx`. Do not select the generic Attachment `file` field or expose its signed URL in the email thread operation.
+- Update `deploy/dokploy/twenty/docker-compose.yml` with lookback `90` only after the deployment branch integration prerequisite.
+
+**Approach:** Apply Gmail `after:<epoch>` only when no cursor exists and the same exact-clock 90-day cutoff as Google Calendar `timeMin` only when no incremental token exists. Fetch every referenced MIME-part payload with Gmail `users.messages.attachments.get`; validate filename, extension, MIME, magic bytes, per-file, per-message, and aggregate limits before writing accepted content to `FileFolder.MessageAttachment` in R2. Store internal file/provider identifiers, size, type, safety state, and Attachment→Message relation, never a generic Files-field URL. The metadata/grant resolver loads Attachment→Message and current actor, evaluates message-channel visibility plus `DOWNLOAD_FILE`, and returns neither metadata nor grant when denied. Grants bind workspace, actor, Message, Attachment, file, nonce, and short expiry. The authenticated controller revalidates every binding and current permission, streams only from `MessageAttachment`, and always sets `Content-Disposition: attachment`; stale, replayed, cross-actor, and leaked grants fail closed. Quarantined content exposes only authorized safe metadata/reason and never a grant. Provider deletion, folder removal, and disconnection remove relation, Attachment, and R2 object under the approved mirror-only retention policy.
+
+**Test Scenarios:** AE8, AE9, and the mailbox/file portion of AE29; exact 90-day boundary, just-inside/outside, folder-query composition, initial versus cursor sync, empty initial result with valid forward cursor, calendar initial versus incremental token, nested MIME parts, base64url decoding, duplicate idempotency, zero/oversize/type-extension-magic mismatch quarantine, R2 retry, and provider delete/folder removal/disconnect cleanup. Direct GraphQL/HTTP cases cover authorized metadata/grant/download, restricted message returning no metadata or grant, missing `DOWNLOAD_FILE`, wrong workspace/actor/relation/file, generic-route denial, expired/stale/replayed/leaked grant, permission revoked after grant, forced `Content-Disposition: attachment` for PDF/text/image, and restored accepted content readable only after fresh authorization.
+
+**Verification:** Run every listed U8 server/front spec, metadata GraphQL generation, typechecks, and an isolated Gmail/calendar sandbox containing inside/outside-window mail, nested/unsafe attachments, excluded folders, internal/private content, deletion/folder removal/disconnect/reconnect, and attachment backup/restore. Record a verified U8 code commit for Release B integration; do not build, publish, or deploy U8 alone.
+
+### U9. Deploy ClickHouse audit with valid entitlement
+
+**Goal:** Make privileged and business events queryable, protected, and recoverable before restricted rollout.
+
+**Files:** update `deploy/dokploy/twenty/docker-compose.yml`, `deploy/dokploy/twenty/backup/Dockerfile`, `deploy/dokploy/twenty/backup/entrypoint.sh`, `docs/operations/twenty-dokploy-runbook.md`, and `docs/operations/paryatech-crm-runbook.md`; create `deploy/dokploy/twenty/clickhouse/config.xml` and `deploy/dokploy/twenty/clickhouse/users.xml`.
+
+**Approach:** Procure/validate Enterprise `AUDIT_LOGS`; deploy pinned internal-only persistent ClickHouse with encrypted storage, healthcheck, resource limits, `CLICKHOUSE_URL`, write-only ingestion, read-only audit reviewer, protected retention/deletion, and externally immutable encrypted backup. Monitored identities cannot update/delete audit. Secrets/classified content are excluded from event payloads. Lack of entitlement blocks this unit and high-risk/restricted rollout.
+
+**Test Scenarios:** entitlement absent fails closed; server emits object/admin events; auditor reads but cannot write/delete; application writes but cannot read/delete; retention/cleanup respects approved policy; secret scan; backup restore and integrity comparison.
+
+**Verification:** Staging then production audit write/read/deny/retention/restore evidence.
+
+### U10. Close backup, restore, encryption, monitoring, and recovery
+
+**Goal:** Replace current path-only backup/temporary heartbeat with proved core database, file, and audit recovery that does not depend on U8.
+
+**Files:** update `deploy/dokploy/twenty/backup/Dockerfile`, `deploy/dokploy/twenty/backup/entrypoint.sh`, `deploy/dokploy/twenty/docker-compose.yml`, and `docs/operations/twenty-dokploy-runbook.md`.
+
+**Approach:** Extend the manifest with database/general-file/ClickHouse identities and checksums, object-copy counts, image/app release, and explicit failure heartbeat. Set cadence/retention/deletion propagation/RTO/RPO, permanent alert owners, and escalation for TLS, server/worker, Postgres, Redis, ClickHouse, general R2 files, disk/swap/capacity, OAuth/SMTP, and backup age/failure. Verify root `0600` secret ownership without printing it. Prove host volumes, general R2 files, backups, and exports encrypted at rest. Perform a full isolated core DB + general file/upload + audit restore; Gmail-attachment restore remains U8/U13 evidence.
+
+**Test Scenarios:** AE12, AE25, and core recovery portions of AE29; each core store failure suppresses success heartbeat; stale/failure alerts route; manifest contains checksums but no secrets/PII; restored core relations/general files/roles/workflows/audit match samples; second-administrator recovery works.
+
+**Verification:** Accept a fresh core backup and isolated core restore report before production writes; this gate neither waits for nor claims Gmail-attachment restore.
+
+### U11. Pilot import and Day-0 operating proof
+
+**Goal:** Prove the independently shippable Release A contact, sales, commercial, and support spine before scale, with mailbox synchronization closed.
+
+**Files:** update `docs/operations/paryatech-crm-runbook.md` with Release A digest, named policy values, tracker inventory, pilot batch, source/capacity forecasts, approvals, evidence, and gate decisions.
+
+**Approach:** Deploy the verified Release A digest; import/reconcile a bounded reviewed pilot; use the desktop guarded actions for reservation collision, suppression, five outreach outcomes, Pending / Unknown, inbound, every transition family, support attach/create, substantive response, manual activation/adoption/renewal, and exception resume. Sample source channels against CRM for omissions, latency, duplicates, adherence, and operator time. Keep mailbox/calendar synchronization closed and retire only trackers whose complete purpose passes.
+
+**Test Scenarios:** AE1–AE7, AE11, AE13–AE15, AE17–AE27, and AE29 with named actors, excluding mailbox AE8–AE9, Phase-2 AE10, and commercial-cutover AE16. A deliberate capability failure proves isolated pause; recovery/audit/reconstructability failure pauses sensitive rollout.
+
+**Verification:** Every R57 gate records pass/fail, owner, evidence, and stop/resume path against the Release A digest; no ambiguous result permits scale, and no evidence claims U8 mailbox behavior.
+
+### U12. Execute commercial freeze and authority switch
+
+**Goal:** Move global commercial authority without changing entitlement/provisioning authority.
+
+**Files:** create `deploy/dokploy/twenty/import/prepare-commercial-cutover.ts`, `deploy/dokploy/twenty/import/import-commercial-cutover.ts`, `deploy/dokploy/twenty/import/reconcile-commercial-cutover.ts`, and `deploy/dokploy/twenty/import/__tests__/commercial-cutover.spec.ts`; update `docs/operations/paryatech-crm-runbook.md`.
+
+**Approach:** Require an approved ParyatechOS export contract with immutable IDs/timestamps, active inventory, mapped Agreement/payment/renewal evidence, verifier, and no travel-operation/entitlement secrets. Resolve all active rows, freeze commercial mutation, take final snapshot, compare delta/hashes, apply idempotently after Agencies/Products, and switch only on zero active conflicts. Before any post-switch Twenty write, rollback may restore snapshot and lift freeze; afterward reconcile forward through Shared Exception—never latest-write-wins.
+
+**Test Scenarios:** AE6, AE14–AE16, AE22, and AE25; unchanged final snapshot; added/changed/missing active row blocks; inactive quarantine allowed; idempotent interrupted resume; stale snapshot cannot overwrite Twenty; entitlement remains writable in ParyatechOS. AE16 is the mandatory end-to-end cutover acceptance.
+
+**Verification:** protected zero-active-conflict report, AE16 evidence, switch time/actor, source write-disable proof, entitlement smoke, and rollback manifest.
+
+### U13. Publish Release B, open mailbox, and complete Day 30/Day 90
+
+**Goal:** Publish the integrated U5+U6+U8 image, finish the approved mailbox contract, and produce falsifiable rollout decisions without entering Phase 2.
+
+**Files:** update `docs/operations/twenty-dokploy-runbook.md` and `docs/operations/paryatech-crm-runbook.md`; record the protected rollout evidence in the CRM Operating Policy record. Add no adapter code.
+
+**Approach:** Build and pin Release B only from verified U5+U6+U8 commits, record its source/image/rollback digests and migration set, deploy it with Release A as rollback, run upgrades, then open mailbox/calendar only after U8 proves full bodies, actor-authorized attachment access, exact 90-day initial bound, ongoing sync, folder/calendar scope, association, broad-visibility acceptance, mirror deletion/disconnect, and Gmail-attachment backup/restore. Reach/reconcile 333 then 1,000 unique Contacted Agencies with companion measures. Lock the Day-90 commercial target at Day 30 and report pass/fail separately. Record only ParyatechOS/Belo/scoring entry-gate decisions; delivery requires a later Product Contract.
+
+**Test Scenarios:** AE8–AE12, AE20–AE21, AE23, AE25, and AE28–AE29. Mailbox F6 and AE8–AE9 are mandatory Release B acceptance; attachment/history/authorization/restore failure keeps mailbox closed and final DoD incomplete while Release A remains available.
+
+**Verification:** Release A and Release B source/image/rollback digests; Release B migration/rollback smoke; U8 Gmail-attachment restore and fresh-authorization proof; mailbox Open evidence; 333/1,000 reconciliations; commercial target lock/pass-fail; tracker retirement; revoked temporary identities; Phase-2 decision record.
+
+---
+
+## Verification Contract
+
+### Scoped automated checks
+
+```bash
+yarn --cwd deploy/dokploy/twenty/import test
+npx jest packages/twenty-server/src/modules/paryatech-crm/services/__tests__ --config=packages/twenty-server/jest.config.mjs
+npx jest packages/twenty-server/src/modules/paryatech-crm/query-hooks/__tests__/paryatech-protected-field.pre-query.hook.spec.ts --config=packages/twenty-server/jest.config.mjs
+npx jest packages/twenty-server/src/modules/paryatech-crm/resolvers/__tests__/paryatech-crm.resolver.integration-spec.ts --config=packages/twenty-server/jest.config.mjs
+npx jest packages/twenty-server/src/database/commands/upgrade-version-command/2-27/__tests__ --config=packages/twenty-server/jest.config.mjs
+npx jest packages/twenty-front/src/modules/paryatech-crm/hooks/__tests__ --config=packages/twenty-front/jest.config.mjs
+npx jest packages/twenty-front/src/modules/paryatech-crm/components/__tests__/ParyatechCrmActionForm.test.tsx --config=packages/twenty-front/jest.config.mjs
+npx jest packages/twenty-front/src/modules/command-menu-item/engine-command/record/single-record/paryatech-crm/components/__tests__/ParyatechCrmSingleRecordCommand.test.tsx --config=packages/twenty-front/jest.config.mjs
+npx jest packages/twenty-server/src/modules/messaging/message-import-manager/drivers/gmail --config=packages/twenty-server/jest.config.mjs
+npx jest packages/twenty-server/src/modules/calendar/calendar-event-import-manager/drivers/google-calendar --config=packages/twenty-server/jest.config.mjs
+npx jest packages/twenty-server/src/modules/messaging/message-import-manager/services/__tests__/messaging-save-messages-and-enqueue-contact-creation.service.spec.ts --config=packages/twenty-server/jest.config.mjs
+npx jest packages/twenty-server/src/modules/messaging/message-import-manager/services/__tests__/messaging-message-list-fetch.service.spec.ts --config=packages/twenty-server/jest.config.mjs
+npx jest packages/twenty-server/src/modules/messaging/message-cleaner/jobs/__tests__/messaging-message-channel-deletion-cleanup.job.spec.ts --config=packages/twenty-server/jest.config.mjs
+npx jest packages/twenty-server/src/engine/workspace-manager/twenty-standard-application/utils/field-metadata/__tests__/compute-message-standard-flat-field-metadata.util.spec.ts --config=packages/twenty-server/jest.config.mjs
+npx jest packages/twenty-server/src/engine/workspace-manager/twenty-standard-application/utils/field-metadata/__tests__/compute-attachment-standard-flat-field-metadata.util.spec.ts --config=packages/twenty-server/jest.config.mjs
+npx jest packages/twenty-server/src/engine/core-modules/file/file-message-attachment/services/file-message-attachment.service.spec.ts --config=packages/twenty-server/jest.config.mjs
+npx jest packages/twenty-server/src/engine/core-modules/file/guards/file-by-id.guard.spec.ts --config=packages/twenty-server/jest.config.mjs
+npx jest packages/twenty-server/src/modules/messaging/message-attachment-access/services/__tests__/message-attachment-authorization.service.spec.ts --config=packages/twenty-server/jest.config.mjs
+npx jest packages/twenty-server/src/modules/messaging/message-attachment-access/guards/__tests__/message-attachment-download.guard.spec.ts --config=packages/twenty-server/jest.config.mjs
+npx jest packages/twenty-server/src/modules/messaging/message-attachment-access/resolvers/__tests__/message-attachment-access.resolver.integration-spec.ts --config=packages/twenty-server/jest.config.mjs
+npx jest packages/twenty-server/src/modules/messaging/message-attachment-access/controllers/__tests__/message-attachment-download.controller.integration-spec.ts --config=packages/twenty-server/jest.config.mjs
+npx jest packages/twenty-front/src/modules/activities/emails/components/EmailThreadMessageAttachments.test.tsx --config=packages/twenty-front/jest.config.mjs
+```
+
+After scoped checks pass:
+
+```bash
+npx nx lint:diff-with-main twenty-server
+npx nx lint:diff-with-main twenty-front
+npx nx run twenty-server:typecheck
+npx nx typecheck twenty-front
+npx nx run twenty-front:graphql:generate
+npx nx run twenty-front:graphql:generate --configuration=metadata
+docker compose -f deploy/dokploy/twenty/docker-compose.yml config --quiet
+shellcheck deploy/dokploy/twenty/backup/entrypoint.sh
+```
+
+### Behavioral gates
+
+1. **Metadata/permissions/actions:** recreate metadata; probe each role’s object, field, export, destroy, settings, connection, and action permissions; verify server-authoritative availability and every U5/U6 record command’s evidence/reason, loading, success, correction, denial, keyboard, and focus behavior.
+2. **Atomic controls:** race two claims through desktop actions; test suppression and Pending paths; execute every listed/unlisted sales/commercial/support transition; replay receipts; verify source-time response; prove a forged client-visible action still fails server authorization.
+3. **Migration:** reconcile source rows → decisions → Companies → People → relations with no unexplained row/key/hash difference or metric/owner creation; dry-run/apply/reapply both 2-27 workspace commands and verify the repository-supported pre-command snapshot restore/rollback.
+4. **Mailbox:** sandbox exact folders, bodies, inside/outside 90-day edges, primary calendar, nested/unsafe attachments, actor/message visibility, `DOWNLOAD_FILE`, no generic Files-field URL, stale/replayed/leaked/cross-actor grants, forced attachment disposition, delete/folder removal/disconnect/reconnect, backup, and restore.
+5. **Core deployment/recovery/audit:** independently of U8, prove health, Release A upgrade status, secret redaction, fresh database/general-file/ClickHouse backup, full isolated core restore, alert delivery, and ClickHouse write/read/delete separation and retention.
+6. **Commercial cutover:** zero active conflicts, global source write stop, Twenty switch, entitlement still working, AE16, and rollback manifest.
+7. **Integrated releases/rollout:** prove Release A source/image/rollback digests and U11 without mailbox; prove Release B U5+U6+U8 source/image/rollback digests and U8/U13 mailbox Open; reconcile 333/1,000 and companion metrics; record Day-0/30/90 and Phase-2 decisions.
+
+Every gate records environment, Release A or B source commit and image/rollback digest, migration set, input batch/policy version, actor, expected and observed result, timestamp, evidence location, and pass/fail. Failures preserve the last trusted state, name the owning unit, and require an explicit idempotent resume; no blind replay may duplicate outreach, receipts, imports, commercial facts, or attachment grants.
+
+---
+
+## Definition of Done
+
+- [ ] Product Contract text and R1–R103, A1–A9, F1–F12, AE1–AE29 remain intact and traceable to units/tests.
+- [ ] Native metadata exactly implements the approved entities, including immutable Support Receipt records, relationships, state sets, evidence, policy, views, dashboards, and desktop workflows without a parallel Agency/Contact/Opportunity model.
+- [ ] Individual accounts, MFA policy, two-admin recovery, least privilege, commercial/suppression/trial/import/audit boundaries, protected fields, deprovisioning, and temporary-key revocation pass.
+- [ ] Every U5/U6 guarded mutation is usable from the typed Twenty desktop record-command layer with server-authoritative permission/state availability, required evidence/reason, exactly-once submit, success refresh, actionable correction/error state, and keyboard/focus coverage.
+- [ ] Reservation/outreach controls are atomic; one claimant wins; suppression blocks; Pending never counts Contacted; first qualifying Contacted sets durable ownership once.
+- [ ] Every allowed Opportunity/Trial/Agreement transition enforces its matrix evidence/actor; every unlisted or under-evidenced transition leaves state unchanged.
+- [ ] Every observable support receipt attaches its immutable Support Receipt record to a verified open Case or creates an owned Case at source time; replay, unknown identity, duplicate/non-support disposition, human-response clock, and denominator history pass.
+- [ ] Only reservation expiry is an automatic state mutation; other automation is named notification-only and no campaign/scoring/generic framework exists.
+- [ ] Agency and commercial imports are inert, provenance-preserving, reviewed, idempotent, reconciled, recoverable, and secret/PII-safe; every active ParyatechOS commercial row reconciles before authority switch.
+- [ ] ClickHouse with valid Enterprise entitlement provides protected, secret-free, tamper-evident/recoverable audit; missing entitlement cannot be waived.
+- [ ] Core PostgreSQL/general-R2/ClickHouse backup, encryption, monitoring, and isolated restore pass independently of U8; final completion additionally proves Gmail-attachment R2 backup and restore through U8/U13 fresh authorization.
+- [ ] The named data owner accepts provider-mirror retention: provider deletion, folder removal, or disconnection deletes the Twenty message/attachment copy. Independent archival retention is outside scope; rejection requires a Product Contract revision before U8.
+- [ ] Gmail and Google Calendar initial sync is exactly bounded to 90 days; ongoing cursor sync works; restricted messages expose neither attachment metadata nor grants; authorized downloads recheck Attachment→Message visibility and `DOWNLOAD_FILE`, reject stale/replayed/leaked grants and the generic file route, force `Content-Disposition: attachment`, and pass quarantine/cleanup/restore tests.
+- [ ] Release A is an immutable traced U5+U6 image with a rollback digest and proves U11 while mailbox remains closed; Release B is an immutable traced U5+U6+U8 image with its own rollback digest and is required for mailbox Open and final completion. Both use registered workspace commands and keep production logic-function/code-interpreter execution disabled.
+- [ ] Manual outreach and Release A remain independently usable throughout U8, while final completion still requires Release B and mailbox Open—not a perpetual defer.
+- [ ] Day-0, Day-30, and Day-90 source/capacity/contact/commercial/support/adoption decisions reconcile, temporary artifacts are removed, and Phase 2 is decided but not implemented.
