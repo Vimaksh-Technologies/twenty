@@ -31,4 +31,10 @@ export class RecordSubstantiveResponseInput {
   @IsNotEmpty()
   @MaxLength(500)
   reason: string;
+
+  @Field(() => String)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2000)
+  evidence: string;
 }

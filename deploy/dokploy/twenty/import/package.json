@@ -7,11 +7,14 @@
   },
   "scripts": {
     "apply:import": "tsc --outDir .runtime --noEmit false && node .runtime/import-approved.js apply",
+    "apply:commercial-cutover": "tsc --outDir .runtime --noEmit false && node .runtime/import-commercial-cutover.js",
     "attest:revocation": "tsc --outDir .runtime --noEmit false && node .runtime/import-approved.js attest",
     "build": "tsc --outDir .runtime --noEmit false",
     "prepare:import": "tsc --outDir .runtime --noEmit false && node .runtime/prepare-import.js",
+    "prepare:commercial-cutover": "tsc --outDir .runtime --noEmit false && node .runtime/prepare-commercial-cutover.js",
     "seal:import": "tsc --outDir .runtime --noEmit false && node .runtime/import-approved.js seal",
     "reconcile:import": "tsc --outDir .runtime --noEmit false && node .runtime/reconcile-import.js",
+    "reconcile:commercial-cutover": "tsc --outDir .runtime --noEmit false && node .runtime/reconcile-commercial-cutover.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },

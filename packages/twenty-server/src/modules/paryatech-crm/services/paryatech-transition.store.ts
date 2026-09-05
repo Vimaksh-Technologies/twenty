@@ -11,8 +11,8 @@ import { UserRoleService } from 'src/engine/metadata-modules/user-role/user-role
 import { type WorkspaceEntityManager } from 'src/engine/twenty-orm/entity-manager/workspace-entity-manager';
 import { GlobalWorkspaceOrmManager } from 'src/engine/twenty-orm/global-workspace-datasource/global-workspace-orm.manager';
 import { type WorkspaceRepository } from 'src/engine/twenty-orm/repository/workspace.repository';
-import { InjectWorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/decorators/inject-workspace-scoped-repository.decorator';
-import { type WorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/workspace-scoped.repository';
+import { InjectWorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/inject-workspace-scoped-repository.decorator';
+import { type WorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/workspace-scoped-repository';
 import { buildSystemAuthContext } from 'src/engine/twenty-orm/utils/build-system-auth-context.util';
 import {
   ParyatechCrmException,
@@ -77,7 +77,8 @@ export class TypeOrmParyatechTransitionStore extends ParyatechTransitionStore {
     operation: (transaction: ParyatechTransitionTransaction) => Promise<TData>,
   ): Promise<TData> {
     const schema = await this.resolveSchema(options.workspaceId);
-    if (!this.isObjectName(options.objectName)) {
+    const objectName = options.objectName;
+    if (!this.isObjectName(objectName)) {
       throw new ParyatechCrmException(
         `Object ${options.objectName} is not in the guarded transition schema`,
         ParyatechCrmExceptionCode.SCHEMA_NOT_CONFIGURED,
@@ -98,7 +99,7 @@ export class TypeOrmParyatechTransitionStore extends ParyatechTransitionStore {
             const primary = options.recordId
               ? await this.getRepository(
                   manager,
-                  schema[options.objectName].nameSingular,
+                  schema[objectName].nameSingular,
                 ).findOne({
                   where: { id: options.recordId },
                   lock: { mode: 'pessimistic_write' },
@@ -143,7 +144,10 @@ export class TypeOrmParyatechTransitionStore extends ParyatechTransitionStore {
       },
       create: async (objectName, data) => {
         const repository = this.repositoryFor(manager, schema, objectName);
-        return repository.save(repository.create(data as never));
+        const record = repository.create(
+          data as never,
+        ) as unknown as ParyatechRecord;
+        return repository.save(record);
       },
       update: async (objectName, id, patch) => {
         const repository = this.repositoryFor(manager, schema, objectName);

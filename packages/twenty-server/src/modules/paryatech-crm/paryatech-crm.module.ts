@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { ApiKeyModule } from 'src/engine/core-modules/api-key/api-key.module';
 import { FieldMetadataEntity } from 'src/engine/metadata-modules/field-metadata/field-metadata.entity';
 import { ObjectMetadataEntity } from 'src/engine/metadata-modules/object-metadata/object-metadata.entity';
 import { RoleEntity } from 'src/engine/metadata-modules/role/role.entity';
@@ -15,6 +16,8 @@ import { AgencyOutreachService } from 'src/modules/paryatech-crm/services/agency
 import { AgreementTransitionService } from 'src/modules/paryatech-crm/services/agreement-transition.service';
 import { AgencyContactControlService } from 'src/modules/paryatech-crm/services/agency-contact-control.service';
 import { TypeOrmAgencyContactControlStore } from 'src/modules/paryatech-crm/services/agency-contact-control.store';
+import { CommercialCutoverService } from 'src/modules/paryatech-crm/services/commercial-cutover.service';
+import { TypeOrmParyatechCommercialCutoverStore } from 'src/modules/paryatech-crm/services/commercial-cutover.store';
 import { OpportunityTransitionService } from 'src/modules/paryatech-crm/services/opportunity-transition.service';
 import { TypeOrmParyatechTransitionStore } from 'src/modules/paryatech-crm/services/paryatech-transition.store';
 import { ParyatechCrmActionAvailabilityService } from 'src/modules/paryatech-crm/services/paryatech-crm-action-availability.service';
@@ -22,10 +25,12 @@ import { SharedExceptionService } from 'src/modules/paryatech-crm/services/share
 import { SupportCaseIntakeService } from 'src/modules/paryatech-crm/services/support-case-intake.service';
 import { SuppressionClearanceService } from 'src/modules/paryatech-crm/services/suppression-clearance.service';
 import { AgencyContactControlStore } from 'src/modules/paryatech-crm/types/agency-contact-control.type';
+import { ParyatechCommercialCutoverStore } from 'src/modules/paryatech-crm/types/commercial-cutover.type';
 import { ParyatechTransitionStore } from 'src/modules/paryatech-crm/types/paryatech-transition.type';
 
 @Module({
   imports: [
+    ApiKeyModule,
     TypeOrmModule.forFeature([
       ObjectMetadataEntity,
       FieldMetadataEntity,
@@ -42,6 +47,8 @@ import { ParyatechTransitionStore } from 'src/modules/paryatech-crm/types/paryat
     AgencyOutreachService,
     AgencyReservationExpiryJob,
     TypeOrmAgencyContactControlStore,
+    CommercialCutoverService,
+    TypeOrmParyatechCommercialCutoverStore,
     OpportunityTransitionService,
     AgreementTransitionService,
     SupportCaseIntakeService,
@@ -53,6 +60,10 @@ import { ParyatechTransitionStore } from 'src/modules/paryatech-crm/types/paryat
     {
       provide: AgencyContactControlStore,
       useExisting: TypeOrmAgencyContactControlStore,
+    },
+    {
+      provide: ParyatechCommercialCutoverStore,
+      useExisting: TypeOrmParyatechCommercialCutoverStore,
     },
     {
       provide: ParyatechTransitionStore,

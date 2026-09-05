@@ -4,6 +4,7 @@ import { InMemoryParyatechTransitionStore } from 'src/modules/paryatech-crm/serv
 import {
   type RecordSubstantiveResponseParams,
   type RecordSupportReceiptParams,
+  type SupportDisposition,
   type TransitionSupportCaseParams,
 } from 'src/modules/paryatech-crm/types/paryatech-transition.type';
 
@@ -170,7 +171,7 @@ describe('SupportCaseIntakeService', () => {
     expect(store.records.supportReceipt).toHaveLength(1);
   });
 
-  it.each(['Duplicate', 'Non-support'])(
+  it.each<SupportDisposition>(['Duplicate', 'Non-support'])(
     'should retain receipt history when closing as %s',
     async (disposition) => {
       const { store, service } = setup();

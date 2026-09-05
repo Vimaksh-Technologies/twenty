@@ -1,6 +1,7 @@
 export const PARYATECH_ROLE = {
   OPERATOR: 'Paryatech Operator',
   COMMERCIAL_SENSITIVE: 'Paryatech Commercial Sensitive',
+  COMMERCIAL_CUTOVER: 'Paryatech Commercial Cutover',
   LEGAL_COMPLIANCE: 'Paryatech Legal Compliance',
   AUDIT_REVIEWER: 'Paryatech Audit Reviewer',
   RECOVERY_ADMINISTRATOR: 'Paryatech Recovery Administrator',

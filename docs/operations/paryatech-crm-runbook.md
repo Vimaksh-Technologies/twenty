@@ -1333,6 +1333,139 @@ Every source, candidate snapshot, review, decision, approved plan, checkpoint, a
 result, rollback manifest, attestation, observed snapshot, and reconciliation report
 must be a regular `0600` file outside Git. Every generated file is written atomically.
 
+## U12 ParyatechOS commercial authority cutover
+
+U12 moves global Agreement, payment, and renewal authority to Twenty. It does not
+move travel fulfillment, provisioning, or entitlement authority. ParyatechOS must
+remain able to mutate entitlement state throughout the cutover and after the switch.
+There is no record-level dual authority and no latest-write-wins resolution.
+
+### Approved source and resolution contracts
+
+Accept only `paryatechos-commercial-export/v1`, produced from ParyatechOS as an
+approved immutable JSON artifact. It contains the contract ID, exact export and
+approval timestamps, approver and evidence hash, declared active inventory, and
+immutable source IDs and create/update timestamps. Each row contains the C04
+Agreement reference; Agency and Product external keys; term, dates, gross booked,
+currency and approved commercial exception; payment state, amounts, evidence
+source/type/times/state and verifier key; and renewal state/date/owner/next action.
+Unknown fields fail closed. Travel, booking, passenger, credential, entitlement, and
+provisioning fields are prohibited. Never adapt a broader ParyatechOS dump into this
+contract inside the protected cutover directory.
+
+Build `paryatech-commercial-resolution/v1` from the already reconciled U4/U11
+workspace. It maps every referenced `agencyExternalKey` and `productExternalKey` to
+the exact Twenty record ID and maps the payment verifier and renewal owner keys to
+Workspace Member IDs. Every active row must resolve all four relation classes. An
+unresolved active row stops preparation; an inactive row is preserved only as
+`inactive-quarantine` and cannot be applied or counted as an active conflict.
+
+All source, resolution, review, freeze, final-export, checkpoint, apply,
+rollback, observed-snapshot, reconciliation, and exception artifacts are regular
+`0600` files outside Git. Generated artifacts use atomic rename. Protected logs and
+change records contain hashes, counts, actor references, timestamps, and evidence
+locations only—not commercial rows, customer identifiers, API bodies, or secrets.
+
+Prepare the inert human-review artifact:
+
+`node .yarn/releases/yarn-4.13.0.cjs --cwd deploy/dokploy/twenty/import prepare:commercial-cutover --export <encrypted-cutover-root>/initial-export.json --resolution <encrypted-cutover-root>/resolution.json --reviewed-by <reviewer-reference> --reviewed-at <UTC-ISO-time> --evidence-hash <sha256> --output <encrypted-cutover-root>/prepared.json`
+
+The prepared artifact is `paryatech-commercial-cutover-prepared/v1`. Record its
+source-export, resolution, active-inventory, and prepared hashes in the protected
+change record. It is inert: preparation performs no Twenty or ParyatechOS mutation.
+
+### Freeze, final snapshot, and apply
+
+The ParyatechOS owner must globally disable commercial mutation before the final
+snapshot. Preserve `paryatechos-commercial-freeze/v1` with the initial export hash,
+freeze ID/time/actor, write-disable evidence hash,
+`commercialMutationDisabled: true`, and `entitlementMutationEnabled: true`. Export a
+second approved immutable source artifact after the freeze. Before any Twenty write,
+the importer compares the exact active ID set and each canonical active-row hash.
+Any added, changed, or missing active row stops the cutover. Changes confined to
+inactive rows remain quarantined.
+
+Twenty exposes only the authenticated Paryatech cutover queries and mutation for this
+path. Provision a temporary API key assigned to a role labelled exactly
+`Paryatech Commercial Cutover`; do not grant that role generic object mutation
+permissions. The mutation validates the exact C04 baseline, locks the source
+Agreement and referenced relations, performs compare-and-set create/update in one
+transaction, and records the actor key ID, request/target/evidence hashes, prior
+snapshot, stored snapshot, and receipt hash in immutable core receipt storage. The
+normal protected-field path remains closed; only this service may write the baseline.
+
+Export the endpoint and temporary token only in the cutover process environment:
+
+`export TWENTY_BASE_URL=https://<twenty-origin> TWENTY_API_KEY=<temporary-cutover-key>`
+
+Run the server-authoritative dry run first. It validates every active target under
+the same locks and mutation contract but writes neither Agreements nor receipts:
+
+`node .yarn/releases/yarn-4.13.0.cjs --cwd deploy/dokploy/twenty/import apply:commercial-cutover --mode dry-run --prepared <encrypted-cutover-root>/prepared.json --final-export <encrypted-cutover-root>/final-export.json --freeze-proof <encrypted-cutover-root>/freeze-proof.json --checkpoint <encrypted-cutover-root>/checkpoint.json --output <encrypted-cutover-root>/dry-run-result.json`
+
+After recording the dry-run hash, run apply with the same immutable artifacts:
+
+`node .yarn/releases/yarn-4.13.0.cjs --cwd deploy/dokploy/twenty/import apply:commercial-cutover --mode apply --prepared <encrypted-cutover-root>/prepared.json --final-export <encrypted-cutover-root>/final-export.json --freeze-proof <encrypted-cutover-root>/freeze-proof.json --checkpoint <encrypted-cutover-root>/checkpoint.json --output <encrypted-cutover-root>/apply-result.json`
+
+The importer uses HTTPS GraphQL with redirects disabled, keeps the token out of
+artifacts and errors, writes exact reviewed C04 fields, checkpoints atomically after
+each row, and resumes the same plan from durable receipts without rewriting completed
+rows. Reusing a key for different evidence, a stale expected snapshot, receipt
+tampering, a newer Twenty evidence timestamp, or an equal-version difference fails
+closed. Clear and revoke the temporary API key immediately after reconciliation.
+
+### Reconciliation, switch, and rollback boundary
+
+Obtain a minimal Twenty snapshot containing the applied Agreement fields and exact
+source IDs, plus the active Shared Exception references and the entitlement smoke
+result. Reconcile before switching authority:
+
+`node .yarn/releases/yarn-4.13.0.cjs --cwd deploy/dokploy/twenty/import reconcile:commercial-cutover --prepared <encrypted-cutover-root>/prepared.json --final-export <encrypted-cutover-root>/final-export.json --freeze-proof <encrypted-cutover-root>/freeze-proof.json --apply-result <encrypted-cutover-root>/apply-result.json --snapshot <encrypted-cutover-root>/twenty-snapshot.json --actor <switch-actor-reference> --switched-at <UTC-ISO-time> --output <encrypted-cutover-root>/reconciliation.json`
+
+The switch is permitted only when the prepared, freeze, final-export, apply, and
+rollback hashes chain exactly; every active Agreement matches its reviewed target;
+the observed inventory has no missing or unexpected active source ID; active conflict
+count is zero; ParyatechOS commercial write-disable proof is current; and an
+entitlement write/read smoke test proves ParyatechOS remains the entitlement
+authority. Preserve switch time/actor and the zero-conflict report.
+
+Before the first post-switch Twenty commercial write, an approved rollback may use
+the manifest to delete only records created by U12, restore only captured pre-existing
+snapshots, reconcile, and then lift the ParyatechOS commercial freeze. Record the
+absence of a post-switch write before executing it. At and after the first such
+Twenty write, restoration and freeze rollback are forbidden: keep Twenty as global
+commercial authority and reconcile forward through an owned Shared Exception. Never
+silently split authority or infer precedence from a later timestamp.
+
+AE16 is the mandatory end-to-end acceptance. Evidence must include an active record
+set plus an inactive historical record with conflicting payment or renewal facts,
+freeze proof, unchanged final active hashes, inactive quarantine provenance and
+recovery, interrupted-resume evidence, exact Twenty reconciliation, zero active
+conflicts, switch time/actor, explicit first-post-switch-write boundary, entitlement
+smoke, and rollback manifest. Also retain AE6, AE14, AE15, AE22, and AE25 evidence.
+
+### Live blockers
+
+Do not schedule or claim the U12 authority switch until every blocker below is
+closed in the protected change record:
+
+1. No approved live `paryatechos-commercial-export/v1` producer, contract approver,
+   immutable initial/final export, or export evidence hash is present in this
+   repository.
+2. No live ParyatechOS global commercial mutation-freeze control, freeze operator,
+   write-disable attestation, freeze-release procedure, or entitlement smoke endpoint
+   is available here.
+3. The temporary `Paryatech Commercial Cutover` role and API key still require
+   operator approval, scoped provisioning, protected delivery, and post-run
+   revocation evidence; no live credential is stored in this repository.
+4. No live Agency/Product/Workspace Member resolution snapshot, active commercial
+   inventory, final snapshot, zero-conflict report, AE16 evidence bundle, switch
+   actor/time, or first-post-switch-write watermark has been supplied.
+
+The code therefore proves the bounded artifact, delta, idempotency, stale-write,
+reconciliation, entitlement-authority, and rollback-boundary contracts, but it does
+not make a live cutover safe while these external controls and evidence are absent.
+
 ## Metadata creation recipe
 
 Perform only in a disposable v2.27 workspace until the verification section passes.

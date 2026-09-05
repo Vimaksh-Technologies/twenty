@@ -2,13 +2,16 @@ import { UseFilters, UseGuards, UsePipes } from '@nestjs/common';
 import { Args, Field, Mutation, ObjectType, Query } from '@nestjs/graphql';
 
 import { isDefined } from 'twenty-shared/utils';
+import { GraphQLJSON } from 'graphql-type-json';
 
 import { MetadataResolver } from 'src/engine/api/graphql/graphql-config/decorators/metadata-resolver.decorator';
 import { UUIDScalarType } from 'src/engine/api/graphql/workspace-schema-builder/graphql-types/scalars';
+import { type ApiKeyEntity } from 'src/engine/core-modules/api-key/api-key.entity';
 import { AuthGraphqlApiExceptionFilter } from 'src/engine/core-modules/auth/filters/auth-graphql-api-exception.filter';
 import { type AuthContextUser } from 'src/engine/core-modules/auth/types/auth-context.type';
 import { ResolverValidationPipe } from 'src/engine/core-modules/graphql/pipes/resolver-validation.pipe';
 import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.entity';
+import { AuthApiKey } from 'src/engine/decorators/auth/auth-api-key.decorator';
 import { AuthUser } from 'src/engine/decorators/auth/auth-user.decorator';
 import { AuthUserWorkspaceId } from 'src/engine/decorators/auth/auth-user-workspace-id.decorator';
 import { AuthWorkspace } from 'src/engine/decorators/auth/auth-workspace.decorator';
@@ -16,6 +19,8 @@ import { NoPermissionGuard } from 'src/engine/guards/no-permission.guard';
 import { WorkspaceAuthGuard } from 'src/engine/guards/workspace-auth.guard';
 import { GlobalWorkspaceOrmManager } from 'src/engine/twenty-orm/global-workspace-datasource/global-workspace-orm.manager';
 import { buildSystemAuthContext } from 'src/engine/twenty-orm/utils/build-system-auth-context.util';
+import { ApplyCommercialCutoverAgreementInput } from 'src/modules/paryatech-crm/dtos/apply-commercial-cutover-agreement.input';
+import { CommercialCutoverResultDTO } from 'src/modules/paryatech-crm/dtos/commercial-cutover-result.dto';
 import { ClaimAgencyInput } from 'src/modules/paryatech-crm/dtos/claim-agency.input';
 import { ClearSuppressionInput } from 'src/modules/paryatech-crm/dtos/clear-suppression.input';
 import { RecordOutreachOutcomeInput } from 'src/modules/paryatech-crm/dtos/record-outreach-outcome.input';
@@ -32,6 +37,7 @@ import {
 } from 'src/modules/paryatech-crm/exceptions/paryatech-crm.exception';
 import { AgencyContactControlService } from 'src/modules/paryatech-crm/services/agency-contact-control.service';
 import { AgreementTransitionService } from 'src/modules/paryatech-crm/services/agreement-transition.service';
+import { CommercialCutoverService } from 'src/modules/paryatech-crm/services/commercial-cutover.service';
 import { OpportunityTransitionService } from 'src/modules/paryatech-crm/services/opportunity-transition.service';
 import { ParyatechCrmActionAvailabilityService } from 'src/modules/paryatech-crm/services/paryatech-crm-action-availability.service';
 import { SharedExceptionService } from 'src/modules/paryatech-crm/services/shared-exception.service';
@@ -119,6 +125,7 @@ export class ParyatechCrmAvailableActionDTO {
 export class ParyatechCrmResolver {
   constructor(
     private readonly agencyContactControlService: AgencyContactControlService,
+    private readonly commercialCutoverService: CommercialCutoverService,
     private readonly opportunityTransitionService: OpportunityTransitionService,
     private readonly agreementTransitionService: AgreementTransitionService,
     private readonly supportCaseIntakeService: SupportCaseIntakeService,
@@ -161,6 +168,55 @@ export class ParyatechCrmResolver {
       requiresEvidence: true,
     }));
   }
+
+  @Query(() => GraphQLJSON, { nullable: true })
+  async inspectCommercialCutoverAgreement(
+    @Args('sourceCommercialId', { type: () => String })
+    sourceCommercialId: string,
+    @AuthWorkspace() workspace: WorkspaceEntity,
+    @AuthApiKey() apiKey?: ApiKeyEntity,
+  ) {
+    const authenticatedApiKey = this.requireCommercialCutoverApiKey(apiKey);
+    return this.commercialCutoverService.inspectAgreement({
+      apiKeyId: authenticatedApiKey.id,
+      sourceCommercialId,
+      workspaceId: workspace.id,
+    });
+  }
+
+  @Query(() => GraphQLJSON, { nullable: true })
+  async inspectCommercialCutoverReceipt(
+    @Args('sourceCommercialId', { type: () => String })
+    sourceCommercialId: string,
+    @Args('idempotencyKey', { type: () => String })
+    idempotencyKey: string,
+    @AuthWorkspace() workspace: WorkspaceEntity,
+    @AuthApiKey() apiKey?: ApiKeyEntity,
+  ) {
+    const authenticatedApiKey = this.requireCommercialCutoverApiKey(apiKey);
+    return this.commercialCutoverService.inspectReceipt({
+      apiKeyId: authenticatedApiKey.id,
+      idempotencyKey,
+      sourceCommercialId,
+      workspaceId: workspace.id,
+    });
+  }
+
+  @Mutation(() => CommercialCutoverResultDTO)
+  async applyCommercialCutoverAgreement(
+    @Args('input') input: ApplyCommercialCutoverAgreementInput,
+    @AuthWorkspace() workspace: WorkspaceEntity,
+    @AuthApiKey() apiKey?: ApiKeyEntity,
+  ) {
+    const authenticatedApiKey = this.requireCommercialCutoverApiKey(apiKey);
+    return this.commercialCutoverService.applyAgreement({
+      apiKeyId: authenticatedApiKey.id,
+      workspaceId: workspace.id,
+      ...input,
+      expectedSnapshotHash: input.expectedSnapshotHash ?? null,
+    });
+  }
+
   @Mutation(() => ParyatechCrmActionResultDTO)
   async claimAgency(
     @Args('input') input: ClaimAgencyInput,
@@ -348,6 +404,17 @@ export class ParyatechCrmResolver {
     });
   }
 
+  private requireCommercialCutoverApiKey(
+    apiKey: ApiKeyEntity | undefined,
+  ): ApiKeyEntity {
+    if (!isDefined(apiKey)) {
+      throw new ParyatechCrmException(
+        'Commercial cutover requires a dedicated API key',
+        ParyatechCrmExceptionCode.PERMISSION_DENIED,
+      );
+    }
+    return apiKey;
+  }
   private async getWorkspaceMemberId(workspaceId: string, userId: string) {
     return this.globalWorkspaceOrmManager.executeInWorkspaceContext(
       async () => {

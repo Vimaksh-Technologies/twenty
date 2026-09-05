@@ -1,7 +1,9 @@
 import { GlobalWorkspaceOrmManager } from 'src/engine/twenty-orm/global-workspace-datasource/global-workspace-orm.manager';
 import { ParyatechCrmResolver } from 'src/modules/paryatech-crm/resolvers/paryatech-crm.resolver';
+import { ParyatechCrmExceptionCode } from 'src/modules/paryatech-crm/exceptions/paryatech-crm.exception';
 import { AgencyContactControlService } from 'src/modules/paryatech-crm/services/agency-contact-control.service';
 import { AgreementTransitionService } from 'src/modules/paryatech-crm/services/agreement-transition.service';
+import { CommercialCutoverService } from 'src/modules/paryatech-crm/services/commercial-cutover.service';
 import { OpportunityTransitionService } from 'src/modules/paryatech-crm/services/opportunity-transition.service';
 import { ParyatechCrmActionAvailabilityService } from 'src/modules/paryatech-crm/services/paryatech-crm-action-availability.service';
 import { SharedExceptionService } from 'src/modules/paryatech-crm/services/shared-exception.service';
@@ -14,6 +16,9 @@ const setup = () => {
       .fn()
       .mockResolvedValue({ agencyId: 'agency-1', status: 'Claimed' }),
   } as unknown as AgencyContactControlService;
+  const commercialCutoverService = {
+    applyAgreement: jest.fn().mockResolvedValue({ status: 'APPLIED' }),
+  } as unknown as CommercialCutoverService;
   const availabilityService = {
     getAvailableActions: jest
       .fn()
@@ -47,6 +52,7 @@ const setup = () => {
   } as unknown as GlobalWorkspaceOrmManager;
   const resolver = new ParyatechCrmResolver(
     agencyService,
+    commercialCutoverService,
     opportunityService,
     agreementService,
     supportService,
@@ -59,6 +65,7 @@ const setup = () => {
   return {
     resolver,
     availabilityService,
+    commercialCutoverService,
     agencyService,
     opportunityService,
     agreementService,
@@ -176,7 +183,11 @@ describe('ParyatechCrmResolver integration boundary', () => {
         user,
       );
 
-      expect(services[serviceName][serviceMethod]).toHaveBeenCalledWith(
+      expect(
+        (services[serviceName] as unknown as Record<string, jest.Mock>)[
+          serviceMethod
+        ],
+      ).toHaveBeenCalledWith(
         expect.objectContaining({
           ...input,
           workspaceId: 'workspace-1',
@@ -231,5 +242,49 @@ describe('ParyatechCrmResolver integration boundary', () => {
     expect(services.supportService.recordReceipt).toHaveBeenCalledWith(
       expect.objectContaining({ ownerId: 'member-1' }),
     );
+  });
+
+  it('should require API-key authentication for commercial cutover', async () => {
+    const { resolver, commercialCutoverService } = setup();
+
+    await expect(
+      resolver.applyCommercialCutoverAgreement(
+        {
+          dryRun: true,
+          evidenceHash: 'e'.repeat(64),
+          expectedSnapshotHash: null,
+          idempotencyKey: 'cutover:commercial-1',
+          target: {},
+          targetHash: 'a'.repeat(64),
+        },
+        workspace,
+        undefined,
+      ),
+    ).rejects.toMatchObject({
+      code: ParyatechCrmExceptionCode.PERMISSION_DENIED,
+    });
+    expect(commercialCutoverService.applyAgreement).not.toHaveBeenCalled();
+  });
+
+  it('should bind commercial cutover to the authenticated API key and workspace', async () => {
+    const { resolver, commercialCutoverService } = setup();
+    const input = {
+      dryRun: false,
+      evidenceHash: 'e'.repeat(64),
+      expectedSnapshotHash: null,
+      idempotencyKey: 'cutover:commercial-1',
+      target: {},
+      targetHash: 'a'.repeat(64),
+    };
+
+    await resolver.applyCommercialCutoverAgreement(input, workspace, {
+      id: 'api-key-1',
+    } as never);
+
+    expect(commercialCutoverService.applyAgreement).toHaveBeenCalledWith({
+      apiKeyId: 'api-key-1',
+      workspaceId: 'workspace-1',
+      ...input,
+    });
   });
 });
