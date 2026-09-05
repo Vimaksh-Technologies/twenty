@@ -1,8 +1,8 @@
 # Twenty Dokploy deployment runbook
 
-**Status:** pre-deployment skeleton. Complete the pre-creation gates and project
-lookup before creating resources; record the remaining bracketed identifiers immediately
-after creation and before deploying a workload.
+**Status:** repository deployment contract through U13; all live deployment,
+migration, recovery, and mailbox-Open evidence remains `blocked-live` until the named
+external gates pass. Bracketed values are required inputs, never observed results.
 
 ## Scope and boundary
 
@@ -692,3 +692,112 @@ URLs, object keys, customer data, or secret environment values.
 - [ ] First administrator bootstrap, login, record workflow, upload workflow, and worker job all succeed.
 - [ ] Every TLS/server/worker/PostgreSQL/Redis/ClickHouse/R2/disk/swap/capacity/OAuth/SMTP/backup-age/failure monitor has permanent primary/secondary owners, destination, acknowledgement window, escalation, and Shared Exception resume evidence.
 - [ ] Change record includes the deployed digest, migration result, verification result, and rollback decision.
+
+## U13 integrated Release A and Release B gate
+
+**Live status: BLOCKED.** Repository commits and templates are not build, migration,
+deployment, rollback, restore, or mailbox-Open evidence. Keep each release record
+`blocked-live` until every required value below is supplied from the approved
+environment and independently reviewed.
+
+### Exact release evidence templates
+
+Create one secret-free `paryatech-twenty-release-evidence/v1` record per release. Every
+digest is lowercase `sha256:` plus 64 hexadecimal characters; every Git commit is the
+full 40-character lowercase ID. Ordered migration arrays use exact committed
+command/migration IDs and use `[]`, never `none`, when empty. Compute
+`migrationSetDigest` from canonical UTF-8 JSON containing, in this order,
+`instanceCommandIds`, `workspaceCommandIds`, and `clickhouseMigrationIds`.
+
+Release A:
+
+```yaml
+schema: paryatech-twenty-release-evidence/v1
+release: A
+status: blocked-live
+sourceCommit: <40-lowercase-hex>
+sourceTreeDigest: sha256:<64-lowercase-hex>
+integratedCommits:
+  guardedAgencyOutreach: 693b2211639942d45b1c49023c26c26f3fe9f96e
+  guardedCommercialSupport: fa14d6b453456239f6f2e0a6575b91a9bd24455b
+imageReference: ghcr.io/vimaksh-technologies/twenty:<release-or-SHA>@sha256:<64-lowercase-hex>
+imageIndexDigest: sha256:<64-lowercase-hex>
+linuxAmd64ManifestDigest: sha256:<64-lowercase-hex>
+rollback:
+  sourceCommit: <40-lowercase-hex>
+  sourceTreeDigest: sha256:<64-lowercase-hex>
+  imageReference: twentycrm/twenty@sha256:61a190e9dda07afc4d3d1b9b53fd1cd8cf23da8dfe4dd1f1176b1cbb0932106e
+  imageIndexDigest: sha256:61a190e9dda07afc4d3d1b9b53fd1cd8cf23da8dfe4dd1f1176b1cbb0932106e
+  linuxAmd64ManifestDigest: sha256:f82a0ffdaa21d0d0d2092e5c26d3716271d0fdff327a1f714fd6722a9e707bf2
+migrationSet:
+  instanceCommandIds: [<exact-ordered-command-ids>]
+  workspaceCommandIds: [<exact-ordered-command-ids>]
+  clickhouseMigrationIds: [<exact-ordered-migration-ids>]
+  migrationSetDigest: sha256:<64-lowercase-hex>
+  preUpgradeStatusEvidenceHash: sha256:<64-lowercase-hex>
+  postUpgradeStatusEvidenceHash: sha256:<64-lowercase-hex>
+  forwardSmokeEvidenceHash: sha256:<64-lowercase-hex>
+  rollbackSmokeEvidenceHash: sha256:<64-lowercase-hex>
+```
+
+Release B:
+
+```yaml
+schema: paryatech-twenty-release-evidence/v1
+release: B
+status: blocked-live
+sourceCommit: <40-lowercase-hex>
+sourceTreeDigest: sha256:<64-lowercase-hex>
+integratedCommits:
+  guardedAgencyOutreach: 693b2211639942d45b1c49023c26c26f3fe9f96e
+  guardedCommercialSupport: fa14d6b453456239f6f2e0a6575b91a9bd24455b
+  boundedMailboxHistory: 8738e544031e9cce3d044d9a566aa9af849550c1
+  messageAttachmentAuthorization: 4c72ed2eec95caa162611a224de14ff58eaa6595
+imageReference: ghcr.io/vimaksh-technologies/twenty:<release-or-SHA>@sha256:<64-lowercase-hex>
+imageIndexDigest: sha256:<64-lowercase-hex>
+linuxAmd64ManifestDigest: sha256:<64-lowercase-hex>
+rollback:
+  release: A
+  sourceCommit: <exact-Release-A-sourceCommit>
+  sourceTreeDigest: <exact-Release-A-sourceTreeDigest>
+  imageReference: <exact-Release-A-imageReference>
+  imageIndexDigest: <exact-Release-A-imageIndexDigest>
+  linuxAmd64ManifestDigest: <exact-Release-A-linuxAmd64ManifestDigest>
+  migrationSetDigest: <exact-Release-A-migrationSetDigest>
+migrationSet:
+  instanceCommandIds: [<exact-ordered-command-ids>]
+  workspaceCommandIds: [<exact-ordered-command-ids>]
+  clickhouseMigrationIds: [<exact-ordered-migration-ids>]
+  migrationSetDigest: sha256:<64-lowercase-hex>
+  preUpgradeStatusEvidenceHash: sha256:<64-lowercase-hex>
+  postUpgradeStatusEvidenceHash: sha256:<64-lowercase-hex>
+  forwardSmokeEvidenceHash: sha256:<64-lowercase-hex>
+  rollbackSmokeEvidenceHash: sha256:<64-lowercase-hex>
+```
+
+The recorded Release A `sourceCommit` must contain both Release A integration commits.
+The Release B `sourceCommit` must contain all four listed U5/U6/U8 capability commits;
+the build fails closed if ancestry or the clean source-tree digest differs. Release B
+rollback values must byte-for-byte equal the accepted Release A record. Keep Release A
+deployed and available as rollback until Release B migrations, restore, and mailbox
+acceptance all pass.
+
+### Release B deploy and mailbox opening
+
+Run the normal upgrade sequence against the exact Release B migration arrays and
+record the pre/post status and forward/rollback smoke hashes. Mailbox remains `Closed`
+until one evidence bundle proves: the exact 90-day initial bound and ongoing sync;
+selected customer folders and dedicated primary calendar; full message bodies and
+unambiguous association; actor-authorized attachment read/download and denial;
+provider deletion, folder removal, and disconnect delete the Twenty mirror and R2
+object; Gmail attachment backup and isolated restore; and reconnect after restore with
+fresh administrator authorization while the retired grant/token remains denied.
+The named data owner's broad-visibility and provider-mirror-deletion acceptance must
+reference that exact Release B image.
+
+Any failed build, digest, migration, authorization, history, scope, access, deletion,
+reconnect, backup, restore, or visibility gate keeps mailbox `Closed`, leaves Release A
+as rollback, and opens or updates C08 with the last trusted state, stop owner, resume
+owner, due/escalation, and scrubbed evidence hash. Resolution alone never resumes
+deployment or sync; the named resume owner must explicitly resume after the failed gate
+passes.

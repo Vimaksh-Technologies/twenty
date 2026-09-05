@@ -1,9 +1,10 @@
 # Paryatech CRM workspace runbook
 
-**Status:** U1–U4 base operating contract with U7, U9, and U10 addenda. This
-document defines reproducible metadata, identity, permission, operating-surface,
-reviewed-import, mailbox, audit, and core-recovery procedures; it does not authorize
-or record a live production change.
+**Status:** Repository-owned operating contracts now extend through U13. They define
+reproducible metadata, identity, permissions, operating surfaces, reviewed import,
+guarded actions, provider, audit, recovery, cutover, and integrated rollout gates.
+Release A, Release B, mailbox Open, and all live rollout outcomes remain blocked until
+their external evidence passes; this document authorizes or fabricates none of them.
 
 ## Scope and safety boundary
 
@@ -376,6 +377,7 @@ remains in provenance.
 | `capacityInputs` | Long text | Policy | Available time and observed Agency/Case effort. |
 | `roleHolderReferences` | Long text | Policy | Role names/account IDs only; no credentials. |
 | `trackerInventory` | Long text | Policy | Tracker, owner, purpose, retirement gate. |
+| `rolloutEvidenceReference` | Text | Policy/Protected | Reference and SHA-256 hash of the secret-free `paryatech-u13-rollout-evidence/v1` record. |
 | `legalApprovalReference` | Text | Policy | Approval record reference. |
 | `dataOwnerApprovalReference` | Text | Policy | Approval record reference. |
 | `providerMirrorRetentionAccepted` | Boolean | Policy | Must be true before U8. |
@@ -1106,9 +1108,9 @@ For every V01–V12 and D01–D02 surface, test as each allowed role at desktop 
    affected capability unless recovery/exposure/reconstructability requires broader
    pause, and resume explicitly after evidence passes.
 
-U5/U6 record commands are future dependencies: U3 records their required keyboard
-path and expected placement but cannot claim their runtime behavior before those
-units land.
+U5/U6 record commands are implemented repository dependencies. Their configured and
+live desktop behavior still requires the named role/evidence smoke; U3 does not claim
+that external result.
 
 ### Reconciled synthetic fixture totals
 
@@ -1687,8 +1689,9 @@ Restore requires root-owned `0600` inputs, a fixed empty
 database name, checksum and manifest-policy validation, atomic PostgreSQL restore,
 full general-file inventory verification, bounded audit assertions, and independent
 review by two recovery administrators. It never authorizes destructive cleanup.
-Gmail attachment retrieval, authorization, mirror deletion, backup, and restore remain
-U8/U13 work and are not claimed by U10.
+U8 supplies Gmail attachment retrieval and authorization behavior; live mirror
+deletion, reconnect, backup, and restore remain U13 acceptance and are not claimed by
+U10.
 
 **U10 live evidence: BLOCKED.** No live R2 copy/Object Lock/lifecycle/encryption proof,
 encrypted-volume proof, permanent heartbeat monitor, published backup-image digest,
@@ -1696,3 +1699,103 @@ approved Dokploy execution, or second-administrator isolated restore has been ob
 in this repository review. Do not claim RTO/RPO, immutability, recoverability, or
 production readiness until those external gates pass and their scrubbed evidence is
 retained outside Git.
+
+## U13 integrated rollout and decision contract
+
+**U13 live status: BLOCKED.** The repository contains the rollout contract and
+integration anchors, not Release A/B images, migrations, live mailbox acceptance,
+rollout counts, or commercial outcomes. Never replace an unobserved value with a
+sample, inferred success, or repository test result.
+
+### Protected CRM Operating Policy evidence
+
+Set C09 `rolloutEvidenceReference` only to the protected record location and its
+SHA-256 hash. The referenced secret-free
+`paryatech-u13-rollout-evidence/v1` record must contain these exact sections:
+
+| Section | Required exact evidence |
+| --- | --- |
+| `releaseA` | Source commit/tree digest, immutable image reference/index/platform digest, rollback source/image digests, canonical ordered migration-set digest, pre/post upgrade status hashes, forward/rollback smoke hashes, decision, deployment owner, rollback owner |
+| `releaseB` | The same fields, plus the integrated U5+U6+U8 commit set; every rollback field must equal the accepted Release A record |
+| `mailboxGate` | `Closed` or `Open`, Release B image digest, each U8 gate result/evidence hash, named data owner, connecting administrator, stop owner, resume owner, C08 reference |
+| `day30Reconciliation` | Window start/checkpoint, C09 policy version, target `333`, observed unique Contacted Agencies, event-to-Agency difference, five companion measures, query/export hashes, owner, pass/fail |
+| `day90Reconciliation` | Same fields with target `1000` |
+| `commercialDecision` | Day-0 formula/floor hashes and owner, approved Day-30 lock time, locked target and lock evidence hash, Day-90 observed value, separate pass/fail, separate narrative hash, failure decision/owner |
+| `trackerRetirement` | Every C09 tracker name, purpose, owner, owning gate, retained/retired status, reconciliation hash, retirement actor/time when retired |
+| `temporaryIdentityRevocation` | Every rollout-only identity reference/purpose, revoked time, denial-test hash, reviewer; never a token, credential, or active production-provider secret |
+| `phase2Decisions` | Separate ParyatechOS, Belo, and scoring decision/owner/evidence hash; decision only, with no adapter, sync, scoring, delivery, or data mutation |
+| `gateDecisions` | Gate, status, last trusted state, stop owner, resume owner, due/escalation, C08/evidence hash, explicit resume actor/time |
+
+Release A must use the exact deployment-runbook Release A record and keep Gmail and
+Calendar disabled. Release B must use its exact deployment-runbook record, prove its
+source commit contains the integrated U5+U6+U8 anchors, and keep Release A available
+as rollback until Release B and mailbox acceptance pass.
+
+### Mailbox Open gate
+
+Mailbox status stays `Closed` unless the exact Release B image passes every U8 gate:
+
+1. exact 90-day initial Gmail/calendar history bound and unchanged ongoing sync;
+2. full-body retrieval, selected customer folder/dedicated calendar scope, and
+   unambiguous Message/Agency/Contact association;
+3. actor-authorized attachment read/download plus cross-message, missing-relation,
+   unauthenticated, active-content, type, size, and magic-byte denial;
+4. provider deletion, selected-folder removal, and disconnect remove both the Twenty
+   mirror and stored R2 object without deleting CRM history;
+5. Gmail attachment backup and isolated restore preserve authorized content,
+   classification, relation, checksum, and denial behavior;
+6. after restore, the prior grant/token is denied and an individual administrator
+   reconnects through fresh authorization; and
+7. the named data owner accepts broad operator visibility and provider-mirror deletion
+   behavior for this Release B digest.
+
+Any failed history, authorization, deletion, reconnect, backup, or restore check keeps
+mailbox `Closed`, opens or reopens C08, and stops only mailbox-dependent work unless
+audit, recovery, restricted exposure, or reconstructability requires a broader stop.
+Resolution does not resume work; the recorded resume owner must explicitly resume it
+after the failed gate passes.
+
+### Day-30, Day-90, retirement, and Phase-2 decisions
+
+At the approved static checkpoints, reconcile N01 Agencies whose
+`firstContactedAt` falls in the window against distinct Agency IDs from qualifying
+first-contact evidence. The difference must be zero before evaluating the target.
+Record unique Agency counts separately for Attempted, Provider Accepted/Completed
+Call, Ever Pending/Unknown, Contacted, and Engaged; none may substitute for another.
+Day 30 passes only when the reconciled Contacted count reaches at least `333`; Day 90
+passes only when it reaches at least `1000`.
+
+Day 30 also locks the cohort-aware commercial target derived from the Day-0-approved
+formula and evidentiary floor. Day 90 records a literal pass/fail against that
+unchanged locked target; narrative variance is a separate field and cannot change the
+result. A failure routes to the named product decision owner.
+
+Retire a parallel tracker only after its complete declared purpose reconciles to
+Twenty under its owning gate; otherwise retain it with an owner and stop/resume
+decision. Revoke every temporary import, pilot, cutover, bootstrap, and staging
+provider identity, record a post-revocation denial hash, and leave active production
+identities governed by their normal rotation contract.
+
+Phase 2 remains decision-only. Record separate `Defer` or
+`Request Product Contract` decisions for ParyatechOS exchange, Belo exchange, and
+scoring. U13 adds no adapter, synchronization, score, campaign, sequence, or delivery;
+implementation requires a later Product Contract.
+
+### Exact external blockers
+
+Live U13 remains blocked until protected evidence supplies:
+
+1. accepted Release A and Release B source/image/rollback digests and exact migration
+   sets, including Release B forward and Release-A rollback smoke;
+2. closure of the existing U9 entitlement/audit and U10 encryption, monitoring,
+   immutable-backup, and two-administrator restore blockers;
+3. closure of the U12 export, freeze, live-resolution, zero-active-conflict, authority
+   switch, temporary-key revocation, and first-post-switch-write evidence blockers;
+4. every mailbox Open item above, including fresh authorization after restore and
+   named data-owner broad-visibility acceptance;
+5. reconciled `333` and `1000` Contacted Agency checkpoints with all companion
+   measures and zero event-to-Agency difference;
+6. the Day-30 target lock and later separate Day-90 commercial pass/fail;
+7. per-tracker retirement/retention decisions, every temporary-identity revocation,
+   and named stop/resume ownership; and
+8. the three Phase-2 decision-only records.
