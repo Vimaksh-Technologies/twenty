@@ -10,13 +10,33 @@ import {
 import { config } from 'dotenv';
 
 import { resolveClickHouseUrl } from 'src/database/clickHouse/resolve-clickhouse-url';
+import { configTransformers } from 'src/engine/core-modules/twenty-config/utils/config-transformers.util';
 
 config({
   path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env',
   override: false,
 });
 
-const clickHouseUrl = () => resolveClickHouseUrl(process.env, 'maintenance');
+const clickHouseUrl = () => resolveClickHouseUrl(process.env, 'migration');
+
+async function assertMigrationIdentity(client: ClickHouseClient) {
+  if (!configTransformers.boolean(process.env.AUDIT_LOGS_ENABLED)) {
+    return;
+  }
+
+  const resultSet = await client.query({
+    query: 'SELECT currentUser() AS currentUser',
+    format: 'JSONEachRow',
+  });
+  const identities = await resultSet.json<{ currentUser: string }>();
+
+  if (
+    identities.length !== 1 ||
+    identities[0].currentUser !== 'twenty_migration'
+  ) {
+    throw new Error('ClickHouse migration identity is not schema-only');
+  }
+}
 
 async function ensureDatabaseExists() {
   const [url, database] = clickHouseUrl().split(/\/(?=[^/]*$)/);
@@ -26,6 +46,7 @@ async function ensureDatabaseExists() {
   });
 
   try {
+    await assertMigrationIdentity(client);
     await client.command({
       query: `CREATE DATABASE IF NOT EXISTS "${database}"`,
     });

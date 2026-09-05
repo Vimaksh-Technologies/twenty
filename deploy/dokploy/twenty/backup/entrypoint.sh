@@ -3,7 +3,9 @@ set -eu
 
 umask 077
 
-: "${PG_DATABASE_URL:?PG_DATABASE_URL is required}"
+: "${BACKUP_PG_DATABASE_URL:?BACKUP_PG_DATABASE_URL is required}"
+: "${BACKUP_PG_DATABASE_USER:?BACKUP_PG_DATABASE_USER is required}"
+: "${APP_PG_DATABASE_USER:?APP_PG_DATABASE_USER is required}"
 : "${BACKUP_HEALTHCHECK_URL:?BACKUP_HEALTHCHECK_URL is required}"
 : "${BACKUP_FAILURE_HEALTHCHECK_URL:?BACKUP_FAILURE_HEALTHCHECK_URL is required}"
 : "${BACKUP_SECRETS_FILE:?BACKUP_SECRETS_FILE is required}"
@@ -164,6 +166,26 @@ write_canonical_hashes() {
   rm -f "$hash_unsorted"
 }
 
+verify_backup_pg_identity() {
+  backup_pg_identity=$(
+    psql "$BACKUP_PG_DATABASE_URL" \
+      --no-psqlrc \
+      --set ON_ERROR_STOP=1 \
+      --tuples-only \
+      --no-align \
+      --command "SELECT concat_ws('|', current_user, (role.rolsuper OR role.rolcreatedb OR role.rolcreaterole OR role.rolreplication OR role.rolbypassrls)::integer, EXISTS (SELECT 1 FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema') AND namespace.nspname NOT LIKE 'pg_toast%' AND class.relkind IN ('r', 'p') AND (has_table_privilege(current_user, class.oid, 'INSERT') OR has_table_privilege(current_user, class.oid, 'UPDATE') OR has_table_privilege(current_user, class.oid, 'DELETE') OR has_table_privilege(current_user, class.oid, 'TRUNCATE') OR has_table_privilege(current_user, class.oid, 'TRIGGER')))::integer, current_setting('transaction_read_only')) FROM pg_catalog.pg_roles AS role WHERE role.rolname = current_user" \
+      2>/dev/null
+  ) || {
+    echo "Backup PostgreSQL identity could not be verified" >&2
+    return 1
+  }
+
+  if [ "$backup_pg_identity" != "$BACKUP_PG_DATABASE_USER|0|0|on" ]; then
+    echo "Backup PostgreSQL identity is not bounded read-only" >&2
+    return 1
+  fi
+}
+
 send_failure_heartbeat() {
   curl --fail --silent --output /dev/null "$BACKUP_FAILURE_HEALTHCHECK_URL" || :
 }
@@ -178,6 +200,18 @@ preflight_cleanup() {
 }
 
 trap preflight_cleanup EXIT HUP INT TERM
+
+if [ "${PG_DATABASE_URL+x}" = 'x' ]; then
+  echo "PG_DATABASE_URL is prohibited in backup" >&2
+  exit 1
+fi
+validate_identifier BACKUP_PG_DATABASE_USER "$BACKUP_PG_DATABASE_USER"
+validate_identifier APP_PG_DATABASE_USER "$APP_PG_DATABASE_USER"
+if [ "$BACKUP_PG_DATABASE_USER" = "$APP_PG_DATABASE_USER" ]; then
+  echo "Backup and application PostgreSQL identities must differ" >&2
+  exit 1
+fi
+verify_backup_pg_identity
 
 verify_root_secret_file "$BACKUP_SECRETS_FILE"
 
@@ -205,6 +239,11 @@ for required_var in \
     exit 1
   fi
 done
+
+if [ "$CLICKHOUSE_BACKUP_USER" != 'twenty_backup' ]; then
+  echo "Isolated ClickHouse backup user must be twenty_backup" >&2
+  exit 1
+fi
 
 for encrypted_endpoint in \
   "$PRIMARY_R2_ENDPOINT" \
@@ -291,7 +330,7 @@ backup_once() {
   clickhouse_identity="clickhouse/${backup_timestamp}/twenty.zip"
   manifest_identity="status/${backup_timestamp}.json"
 
-  pg_dump --dbname="$PG_DATABASE_URL" --format=custom --no-acl --no-owner \
+  pg_dump --dbname="$BACKUP_PG_DATABASE_URL" --format=custom --no-acl --no-owner \
     --file="$backup_tmpdir/twenty.dump"
   database_checksum=$(sha256sum "$backup_tmpdir/twenty.dump" | cut -d ' ' -f 1)
 
@@ -486,7 +525,7 @@ verify_core_restore() {
   : "${RESTORE_CLICKHOUSE_PASSWORD:?RESTORE_CLICKHOUSE_PASSWORD is required}"
   : "${RESTORE_CLICKHOUSE_DATABASE:?RESTORE_CLICKHOUSE_DATABASE is required}"
 
-  if [ "$RESTORE_PG_DATABASE_URL" = "$PG_DATABASE_URL" ]; then
+  if [ "$RESTORE_PG_DATABASE_URL" = "$BACKUP_PG_DATABASE_URL" ]; then
     echo "Isolated PostgreSQL restore target must differ from the source" >&2
     return 1
   fi
@@ -515,6 +554,14 @@ verify_core_restore() {
     return 1
   fi
   validate_identifier RESTORE_CLICKHOUSE_DATABASE "$RESTORE_CLICKHOUSE_DATABASE"
+  if [ "$RESTORE_CLICKHOUSE_USER" != 'twenty_restore' ]; then
+    echo "Isolated ClickHouse restore user must be twenty_restore" >&2
+    return 1
+  fi
+  if [ "$RESTORE_CLICKHOUSE_USER" = "$CLICKHOUSE_BACKUP_USER" ]; then
+    echo "ClickHouse backup and restore identities must differ" >&2
+    return 1
+  fi
   if [ "$RESTORE_CLICKHOUSE_DATABASE" = "$CLICKHOUSE_BACKUP_DATABASE" ]; then
     echo "Isolated ClickHouse restore target must differ from the source" >&2
     return 1
@@ -621,6 +668,7 @@ verify_core_restore() {
     clickhouse client \
       --host "$RESTORE_CLICKHOUSE_HOST" \
       --user "$RESTORE_CLICKHOUSE_USER" \
+      --allow_experimental_json_type 1 \
       --query "RESTORE DATABASE \`$CLICKHOUSE_BACKUP_DATABASE\` AS \`$RESTORE_CLICKHOUSE_DATABASE\` FROM Disk('audit_backups', 'restore/${restore_timestamp}.zip')" \
       >/dev/null
   CLICKHOUSE_PASSWORD="$RESTORE_CLICKHOUSE_PASSWORD" \

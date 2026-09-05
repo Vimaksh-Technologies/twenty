@@ -12,4 +12,4 @@ CREATE TABLE IF NOT EXISTS applicationLog
 )
     ENGINE = MergeTree
     ORDER BY (workspaceId, timestamp, applicationId, logicFunctionId)
-    TTL timestamp + INTERVAL 30 DAY DELETE;
+    TTL toDateTime(timestamp) + INTERVAL 30 DAY DELETE;

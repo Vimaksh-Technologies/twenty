@@ -16,7 +16,8 @@ type MaskingConfigType = {
   CLICKHOUSE_URL: HidePasswordConfig;
   CLICKHOUSE_INGEST_URL: HidePasswordConfig;
   CLICKHOUSE_READ_URL: HidePasswordConfig;
-  CLICKHOUSE_MAINTENANCE_URL: HidePasswordConfig;
+  CLICKHOUSE_MIGRATION_URL: HidePasswordConfig;
+  CLICKHOUSE_RETENTION_URL: HidePasswordConfig;
 };
 
 export const CONFIG_VARIABLES_MASKING_CONFIG: MaskingConfigType = {
@@ -39,7 +40,10 @@ export const CONFIG_VARIABLES_MASKING_CONFIG: MaskingConfigType = {
   CLICKHOUSE_READ_URL: {
     strategy: ConfigVariablesMaskingStrategies.HIDE_PASSWORD,
   },
-  CLICKHOUSE_MAINTENANCE_URL: {
+  CLICKHOUSE_MIGRATION_URL: {
+    strategy: ConfigVariablesMaskingStrategies.HIDE_PASSWORD,
+  },
+  CLICKHOUSE_RETENTION_URL: {
     strategy: ConfigVariablesMaskingStrategies.HIDE_PASSWORD,
   },
 } as const;

@@ -927,8 +927,7 @@ export class ConfigVariables {
 
   @ConfigVariablesMetadata({
     group: ConfigVariablesGroup.ANALYTICS_CONFIG,
-    description:
-      'Protected ClickHouse URL for retention and schema maintenance',
+    description: 'One-shot ClickHouse schema migration URL',
     type: ConfigVariableType.STRING,
     isSensitive: true,
     isEnvOnly: true,
@@ -937,9 +936,22 @@ export class ConfigVariables {
     require_tld: false,
     allow_underscores: true,
   })
-  @IsDefined()
-  @ValidateIf((env) => env.AUDIT_LOGS_ENABLED === true)
-  CLICKHOUSE_MAINTENANCE_URL: string;
+  @IsOptional()
+  CLICKHOUSE_MIGRATION_URL: string;
+
+  @ConfigVariablesMetadata({
+    group: ConfigVariablesGroup.ANALYTICS_CONFIG,
+    description: 'Isolated delete-only ClickHouse retention URL',
+    type: ConfigVariableType.STRING,
+    isSensitive: true,
+    isEnvOnly: true,
+  })
+  @IsUrl({
+    require_tld: false,
+    allow_underscores: true,
+  })
+  @IsOptional()
+  CLICKHOUSE_RETENTION_URL: string;
 
   @ConfigVariablesMetadata({
     group: ConfigVariablesGroup.LOGGING,
@@ -2275,7 +2287,6 @@ export class ConfigVariables {
     type: ConfigVariableType.NUMBER,
     isEnvOnly: true,
   })
-
   @CastToPositiveNumber()
   @IsOptional()
   SEARCH_ILIKE_FALLBACK_TIMEOUT_MS: number = 2000;
@@ -2335,16 +2346,12 @@ export class ConfigVariables {
 const CLICKHOUSE_AUDIT_URL_KEYS = [
   'CLICKHOUSE_INGEST_URL',
   'CLICKHOUSE_READ_URL',
-  'CLICKHOUSE_MAINTENANCE_URL',
 ] as const;
 
 export const getMissingClickHouseAuditUrlKeys = (
   config: Pick<
     ConfigVariables,
-    | 'AUDIT_LOGS_ENABLED'
-    | 'CLICKHOUSE_INGEST_URL'
-    | 'CLICKHOUSE_READ_URL'
-    | 'CLICKHOUSE_MAINTENANCE_URL'
+    'AUDIT_LOGS_ENABLED' | 'CLICKHOUSE_INGEST_URL' | 'CLICKHOUSE_READ_URL'
   >,
 ): string[] => {
   if (!config.AUDIT_LOGS_ENABLED) {

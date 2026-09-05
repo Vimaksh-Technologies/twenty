@@ -24,8 +24,10 @@ const HARDENED_CONFIG = {
   CLICKHOUSE_URL: 'http://legacy:legacy-secret@clickhouse:8123/twenty',
   CLICKHOUSE_INGEST_URL: 'http://ingest:ingest-secret@clickhouse:8123/twenty',
   CLICKHOUSE_READ_URL: 'http://reader:reader-secret@clickhouse:8123/twenty',
-  CLICKHOUSE_MAINTENANCE_URL:
-    'http://maintenance:maintenance-secret@clickhouse:8123/twenty',
+  CLICKHOUSE_MIGRATION_URL:
+    'http://must-not-initialize:migration-secret@clickhouse:8123/twenty',
+  CLICKHOUSE_RETENTION_URL:
+    'http://must-not-initialize:retention-secret@clickhouse:8123/twenty',
 } as const;
 
 const createService = (
@@ -46,36 +48,25 @@ const createService = (
 };
 
 describe('ClickHouseService role routing', () => {
-  it('routes insert, select, and retention to distinct hardened clients', async () => {
+  it('routes runtime insert and select to distinct hardened clients', async () => {
     const ingestClient = createMockClient();
     const readClient = createMockClient();
-    const maintenanceClient = createMockClient();
-    const service = createService(HARDENED_CONFIG, [
-      ingestClient,
-      readClient,
-      maintenanceClient,
-    ]);
+    const service = createService(HARDENED_CONFIG, [ingestClient, readClient]);
 
     await service.insert('workspaceEvent', [{ event: 'created' }]);
     await service.select('SELECT * FROM workspaceEvent');
-    await service.deleteExpiredWorkspaceEvents(
-      'workspaceEvent',
-      'workspace-1',
-      '2026-01-01 00:00:00.000',
-    );
 
     expect(ingestClient.insert).toHaveBeenCalledTimes(1);
     expect(ingestClient.query).not.toHaveBeenCalled();
     expect(readClient.query).toHaveBeenCalledTimes(1);
     expect(readClient.insert).not.toHaveBeenCalled();
-    expect(maintenanceClient.command).toHaveBeenCalledWith({
-      query:
-        'ALTER TABLE workspaceEvent DELETE WHERE "workspaceId" = {workspaceId:String} AND "timestamp" < {cutoffDate:DateTime64(3)}',
-      query_params: {
-        workspaceId: 'workspace-1',
-        cutoffDate: '2026-01-01 00:00:00.000',
-      },
-    });
+    expect(createClient).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(jest.mocked(createClient).mock.calls)).not.toContain(
+      'migration-secret',
+    );
+    expect(JSON.stringify(jest.mocked(createClient).mock.calls)).not.toContain(
+      'retention-secret',
+    );
   });
 
   it('does not fall back to CLICKHOUSE_URL in hardened mode', () => {
@@ -89,11 +80,10 @@ describe('ClickHouseService role routing', () => {
 
     expect(service.isClientConfigured('ingest')).toBe(false);
     expect(service.isClientConfigured('read')).toBe(false);
-    expect(service.isClientConfigured('maintenance')).toBe(false);
     expect(createClient).not.toHaveBeenCalled();
   });
 
-  it('uses one legacy client for every role outside hardened mode', async () => {
+  it('uses one legacy client for both runtime roles outside hardened mode', async () => {
     const client = createMockClient();
     const service = createService(
       {
@@ -105,7 +95,6 @@ describe('ClickHouseService role routing', () => {
 
     expect(service.isClientConfigured('ingest')).toBe(true);
     expect(service.isClientConfigured('read')).toBe(true);
-    expect(service.isClientConfigured('maintenance')).toBe(true);
 
     await service.onModuleDestroy();
 
@@ -115,15 +104,8 @@ describe('ClickHouseService role routing', () => {
   it('strict reads throw instead of returning an empty audit history', async () => {
     const ingestClient = createMockClient();
     const readClient = createMockClient();
-    const maintenanceClient = createMockClient();
-
     readClient.query.mockRejectedValue(new Error('reader unavailable'));
-
-    const service = createService(HARDENED_CONFIG, [
-      ingestClient,
-      readClient,
-      maintenanceClient,
-    ]);
+    const service = createService(HARDENED_CONFIG, [ingestClient, readClient]);
 
     await expect(
       service.selectOrThrow('SELECT * FROM workspaceEvent'),
@@ -133,36 +115,15 @@ describe('ClickHouseService role routing', () => {
     ).resolves.toEqual([]);
   });
 
-  it('rejects retention against a non-audit table', async () => {
-    const service = createService(HARDENED_CONFIG, [
-      createMockClient(),
-      createMockClient(),
-      createMockClient(),
-    ]);
-
-    await expect(
-      service.deleteExpiredWorkspaceEvents(
-        'system.query_log' as never,
-        'workspace-1',
-        '2026-01-01 00:00:00.000',
-      ),
-    ).rejects.toThrow('Unsupported ClickHouse event table');
-  });
-
   it('fails hardened startup without leaking connection details', async () => {
     const ingestClient = createMockClient();
     const readClient = createMockClient();
-    const maintenanceClient = createMockClient();
 
     readClient.ping.mockRejectedValue(
       new Error(HARDENED_CONFIG.CLICKHOUSE_READ_URL),
     );
 
-    const service = createService(HARDENED_CONFIG, [
-      ingestClient,
-      readClient,
-      maintenanceClient,
-    ]);
+    const service = createService(HARDENED_CONFIG, [ingestClient, readClient]);
     const loggerError = jest
       .spyOn(service['logger'], 'error')
       .mockImplementation();

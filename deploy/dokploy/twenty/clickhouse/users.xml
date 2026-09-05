@@ -8,14 +8,22 @@
       <readonly>1</readonly>
       <log_queries>1</log_queries>
     </audit_reader>
-    <maintenance>
+    <migration>
       <readonly>0</readonly>
       <log_queries>1</log_queries>
-    </maintenance>
+    </migration>
+    <retention>
+      <readonly>0</readonly>
+      <log_queries>1</log_queries>
+    </retention>
     <backup>
       <readonly>0</readonly>
       <log_queries>1</log_queries>
     </backup>
+    <restore>
+      <readonly>0</readonly>
+      <log_queries>1</log_queries>
+    </restore>
   </profiles>
 
   <users>
@@ -58,27 +66,38 @@
       </grants>
     </twenty_audit_reviewer>
 
-    <twenty_maintenance>
-      <password from_env="CLICKHOUSE_MAINTENANCE_PASSWORD" />
+    <twenty_migration>
+      <password from_env="CLICKHOUSE_MIGRATION_PASSWORD" />
       <networks>
         <ip>0.0.0.0/0</ip>
         <ip>::/0</ip>
       </networks>
-      <profile>maintenance</profile>
+      <profile>migration</profile>
       <quota>default</quota>
       <access_management>0</access_management>
       <grants>
-        <query>GRANT CREATE DATABASE ON *.*</query>
+        <query>GRANT CREATE DATABASE ON twenty.*</query>
         <query>GRANT CREATE TABLE ON twenty.*</query>
         <query>GRANT SELECT ON twenty.*</query>
         <query>GRANT INSERT ON twenty.*</query>
         <query>GRANT ALTER TABLE ON twenty.*</query>
         <query>GRANT DROP TABLE ON twenty.*</query>
-        <query>GRANT CREATE TABLE ON twenty_restore_validation.*</query>
-        <query>GRANT INSERT ON twenty_restore_validation.*</query>
-        <query>GRANT SELECT ON twenty_restore_validation.*</query>
       </grants>
-    </twenty_maintenance>
+    </twenty_migration>
+
+    <twenty_retention>
+      <password from_env="CLICKHOUSE_RETENTION_PASSWORD" />
+      <networks>
+        <ip>0.0.0.0/0</ip>
+        <ip>::/0</ip>
+      </networks>
+      <profile>retention</profile>
+      <quota>default</quota>
+      <access_management>0</access_management>
+      <grants>
+        <query>GRANT ALTER DELETE ON twenty.*</query>
+      </grants>
+    </twenty_retention>
 
     <twenty_backup>
       <password from_env="CLICKHOUSE_BACKUP_PASSWORD" />
@@ -94,5 +113,23 @@
         <query>GRANT BACKUP ON twenty.*</query>
       </grants>
     </twenty_backup>
+
+    <twenty_restore>
+      <password from_env="CLICKHOUSE_RESTORE_PASSWORD" />
+      <networks>
+        <ip>0.0.0.0/0</ip>
+        <ip>::/0</ip>
+      </networks>
+      <profile>restore</profile>
+      <quota>default</quota>
+      <access_management>0</access_management>
+      <grants>
+        <query>GRANT BACKUP ON twenty.*</query>
+        <query>GRANT CREATE DATABASE ON twenty_restore_validation.*</query>
+        <query>GRANT CREATE TABLE ON twenty_restore_validation.*</query>
+        <query>GRANT INSERT ON twenty_restore_validation.*</query>
+        <query>GRANT SELECT ON twenty_restore_validation.*</query>
+      </grants>
+    </twenty_restore>
   </users>
 </clickhouse>

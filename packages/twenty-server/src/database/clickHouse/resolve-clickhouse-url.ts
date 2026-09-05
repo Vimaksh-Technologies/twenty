@@ -1,6 +1,10 @@
 import { configTransformers } from 'src/engine/core-modules/twenty-config/utils/config-transformers.util';
 
-export type ClickHouseClientRole = 'ingest' | 'read' | 'maintenance';
+export type ClickHouseClientRole =
+  | 'ingest'
+  | 'read'
+  | 'migration'
+  | 'retention';
 
 const CLICKHOUSE_URL_KEY_BY_ROLE: Record<
   ClickHouseClientRole,
@@ -8,7 +12,8 @@ const CLICKHOUSE_URL_KEY_BY_ROLE: Record<
 > = {
   ingest: 'CLICKHOUSE_INGEST_URL',
   read: 'CLICKHOUSE_READ_URL',
-  maintenance: 'CLICKHOUSE_MAINTENANCE_URL',
+  migration: 'CLICKHOUSE_MIGRATION_URL',
+  retention: 'CLICKHOUSE_RETENTION_URL',
 };
 
 export const resolveClickHouseUrl = (

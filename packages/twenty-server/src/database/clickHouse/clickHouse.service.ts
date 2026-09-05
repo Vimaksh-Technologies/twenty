@@ -12,27 +12,14 @@ import {
 } from '@clickhouse/client';
 
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
-import { type WorkspaceEventTable } from 'src/engine/core-modules/event-logs/types/workspace-event-envelope.type';
 
 export type ClickHouseInsertOptions = {
   asyncInsertBusyTimeoutMaxMs?: number;
 };
 
-export type ClickHouseClientRole = 'ingest' | 'read' | 'maintenance';
+export type ClickHouseClientRole = 'ingest' | 'read';
 
-const CLICKHOUSE_CLIENT_ROLES: ClickHouseClientRole[] = [
-  'ingest',
-  'read',
-  'maintenance',
-];
-
-const EVENT_LOG_TABLES: Record<WorkspaceEventTable, true> = {
-  workspaceEvent: true,
-  pageview: true,
-  objectEvent: true,
-  usageEvent: true,
-  applicationLog: true,
-};
+const CLICKHOUSE_CLIENT_ROLES: ClickHouseClientRole[] = ['ingest', 'read'];
 
 @Injectable()
 export class ClickHouseService implements OnModuleInit, OnModuleDestroy {
@@ -53,10 +40,6 @@ export class ClickHouseService implements OnModuleInit, OnModuleDestroy {
       this.initializeRoleClient(
         'read',
         this.twentyConfigService.get('CLICKHOUSE_READ_URL'),
-      );
-      this.initializeRoleClient(
-        'maintenance',
-        this.twentyConfigService.get('CLICKHOUSE_MAINTENANCE_URL'),
       );
 
       return;
@@ -182,31 +165,6 @@ export class ClickHouseService implements OnModuleInit, OnModuleDestroy {
       return Array.isArray(result) ? result : [];
     } catch {
       throw new Error('ClickHouse read failed');
-    }
-  }
-
-  public async deleteExpiredWorkspaceEvents(
-    table: WorkspaceEventTable,
-    workspaceId: string,
-    cutoffDate: string,
-  ): Promise<void> {
-    if (EVENT_LOG_TABLES[table] !== true) {
-      throw new Error(`Unsupported ClickHouse event table: ${table}`);
-    }
-
-    const client = this.clients.maintenance;
-
-    if (!client) {
-      throw new Error('ClickHouse maintenance failed');
-    }
-
-    try {
-      await client.command({
-        query: `ALTER TABLE ${table} DELETE WHERE "workspaceId" = {workspaceId:String} AND "timestamp" < {cutoffDate:DateTime64(3)}`,
-        query_params: { workspaceId, cutoffDate },
-      });
-    } catch {
-      throw new Error('ClickHouse maintenance failed');
     }
   }
 

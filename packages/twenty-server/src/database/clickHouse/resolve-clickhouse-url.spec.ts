@@ -1,18 +1,30 @@
 import { resolveClickHouseUrl } from 'src/database/clickHouse/resolve-clickhouse-url';
 
 describe('resolveClickHouseUrl', () => {
-  it('uses the requested role URL in hardened mode', () => {
+  it('uses the one-shot migration URL in hardened mode', () => {
     expect(
       resolveClickHouseUrl(
         {
           AUDIT_LOGS_ENABLED: 'true',
           CLICKHOUSE_URL: 'http://legacy:secret@clickhouse/twenty',
-          CLICKHOUSE_MAINTENANCE_URL:
-            'http://maintenance:secret@clickhouse/twenty',
+          CLICKHOUSE_MIGRATION_URL: 'http://migration:secret@clickhouse/twenty',
         },
-        'maintenance',
+        'migration',
       ),
-    ).toBe('http://maintenance:secret@clickhouse/twenty');
+    ).toBe('http://migration:secret@clickhouse/twenty');
+  });
+
+  it('routes isolated retention without accepting the migration URL', () => {
+    expect(
+      resolveClickHouseUrl(
+        {
+          AUDIT_LOGS_ENABLED: 'true',
+          CLICKHOUSE_MIGRATION_URL: 'http://migration:secret@clickhouse/twenty',
+          CLICKHOUSE_RETENTION_URL: 'http://retention:secret@clickhouse/twenty',
+        },
+        'retention',
+      ),
+    ).toBe('http://retention:secret@clickhouse/twenty');
   });
 
   it('uses hardened mode for every supported true value', () => {
@@ -37,7 +49,7 @@ describe('resolveClickHouseUrl', () => {
           AUDIT_LOGS_ENABLED: 'enabled',
           CLICKHOUSE_URL: 'http://legacy:canary-secret@clickhouse/twenty',
         },
-        'maintenance',
+        'migration',
       ),
     ).toThrow('AUDIT_LOGS_ENABLED must be a boolean');
   });

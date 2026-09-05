@@ -16,7 +16,6 @@ services:
       AUDIT_LOGS_ENABLED: "true"
       CLICKHOUSE_INGEST_URL: ${CLICKHOUSE_INGEST_URL:?CLICKHOUSE_INGEST_URL is required}
       CLICKHOUSE_READ_URL: ${CLICKHOUSE_READ_URL:?CLICKHOUSE_READ_URL is required}
-      CLICKHOUSE_MAINTENANCE_URL: ${CLICKHOUSE_MAINTENANCE_URL:?CLICKHOUSE_MAINTENANCE_URL is required}
       STORAGE_TYPE: S_3
       STORAGE_S3_REGION: auto
       STORAGE_S3_NAME: ${STORAGE_S3_NAME:?STORAGE_S3_NAME is required}
@@ -78,7 +77,6 @@ services:
       AUDIT_LOGS_ENABLED: "true"
       CLICKHOUSE_INGEST_URL: ${CLICKHOUSE_INGEST_URL:?CLICKHOUSE_INGEST_URL is required}
       CLICKHOUSE_READ_URL: ${CLICKHOUSE_READ_URL:?CLICKHOUSE_READ_URL is required}
-      CLICKHOUSE_MAINTENANCE_URL: ${CLICKHOUSE_MAINTENANCE_URL:?CLICKHOUSE_MAINTENANCE_URL is required}
       STORAGE_TYPE: S_3
       STORAGE_S3_REGION: auto
       STORAGE_S3_NAME: ${STORAGE_S3_NAME:?STORAGE_S3_NAME is required}
@@ -174,8 +172,10 @@ services:
       CLICKHOUSE_ADMIN_PASSWORD: ${CLICKHOUSE_ADMIN_PASSWORD:?CLICKHOUSE_ADMIN_PASSWORD is required}
       CLICKHOUSE_INGEST_PASSWORD: ${CLICKHOUSE_INGEST_PASSWORD:?CLICKHOUSE_INGEST_PASSWORD is required}
       CLICKHOUSE_AUDIT_REVIEWER_PASSWORD: ${CLICKHOUSE_AUDIT_REVIEWER_PASSWORD:?CLICKHOUSE_AUDIT_REVIEWER_PASSWORD is required}
-      CLICKHOUSE_MAINTENANCE_PASSWORD: ${CLICKHOUSE_MAINTENANCE_PASSWORD:?CLICKHOUSE_MAINTENANCE_PASSWORD is required}
+      CLICKHOUSE_MIGRATION_PASSWORD: ${CLICKHOUSE_MIGRATION_PASSWORD:?CLICKHOUSE_MIGRATION_PASSWORD is required}
+      CLICKHOUSE_RETENTION_PASSWORD: ${CLICKHOUSE_RETENTION_PASSWORD:?CLICKHOUSE_RETENTION_PASSWORD is required}
       CLICKHOUSE_BACKUP_PASSWORD: ${CLICKHOUSE_BACKUP_PASSWORD:?CLICKHOUSE_BACKUP_PASSWORD is required}
+      CLICKHOUSE_RESTORE_PASSWORD: ${CLICKHOUSE_RESTORE_PASSWORD:?CLICKHOUSE_RESTORE_PASSWORD is required}
     healthcheck:
       test: ["CMD-SHELL", "CLICKHOUSE_PASSWORD=\"$${CLICKHOUSE_ADMIN_PASSWORD}\" clickhouse client --user default --query 'SELECT 1'"]
       interval: 10s
@@ -194,7 +194,7 @@ services:
     restart: "no"
     environment:
       AUDIT_LOGS_ENABLED: "true"
-      CLICKHOUSE_MAINTENANCE_URL: ${CLICKHOUSE_MAINTENANCE_URL:?CLICKHOUSE_MAINTENANCE_URL is required}
+      CLICKHOUSE_MIGRATION_URL: ${CLICKHOUSE_MIGRATION_URL:?CLICKHOUSE_MIGRATION_URL is required}
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -204,6 +204,32 @@ services:
           cpus: "0.25"
           memory: 512M
 
+  clickhouse-retention:
+    image: ${TWENTY_IMAGE_REF:?TWENTY_IMAGE_REF is required}
+    command: ["yarn", "clickhouse:retention:prod"]
+    restart: "no"
+    profiles: ["operations"]
+    environment:
+      AUDIT_LOGS_ENABLED: "true"
+      CLICKHOUSE_RETENTION_URL: ${CLICKHOUSE_RETENTION_URL:?CLICKHOUSE_RETENTION_URL is required}
+      RETENTION_PG_DATABASE_URL: ${RETENTION_PG_DATABASE_URL:?RETENTION_PG_DATABASE_URL is required}
+      RETENTION_PG_DATABASE_USER: ${RETENTION_PG_DATABASE_USER:?RETENTION_PG_DATABASE_USER is required}
+      APP_PG_DATABASE_USER: ${PG_DATABASE_USER:?PG_DATABASE_USER is required}
+      RETENTION_HEALTHCHECK_URL: ${RETENTION_HEALTHCHECK_URL:?RETENTION_HEALTHCHECK_URL is required}
+      RETENTION_FAILURE_HEALTHCHECK_URL: ${RETENTION_FAILURE_HEALTHCHECK_URL:?RETENTION_FAILURE_HEALTHCHECK_URL is required}
+    depends_on:
+      db:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      clickhouse-migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+
   backup:
     image: ${TWENTY_BACKUP_IMAGE_REF:?TWENTY_BACKUP_IMAGE_REF is required}
     restart: unless-stopped
@@ -212,7 +238,9 @@ services:
       - ../files/twenty-backup.env:/run/secrets/twenty-backup.env:ro
       - clickhouse-backup-staging:/var/lib/clickhouse/backups
     environment:
-      PG_DATABASE_URL: ${PG_DATABASE_URL:?PG_DATABASE_URL is required}
+      BACKUP_PG_DATABASE_URL: ${BACKUP_PG_DATABASE_URL:?BACKUP_PG_DATABASE_URL is required}
+      BACKUP_PG_DATABASE_USER: ${BACKUP_PG_DATABASE_USER:?BACKUP_PG_DATABASE_USER is required}
+      APP_PG_DATABASE_USER: ${PG_DATABASE_USER:?PG_DATABASE_USER is required}
       BACKUP_HEALTHCHECK_URL: ${BACKUP_HEALTHCHECK_URL:?BACKUP_HEALTHCHECK_URL is required}
       BACKUP_FAILURE_HEALTHCHECK_URL: ${BACKUP_FAILURE_HEALTHCHECK_URL:?BACKUP_FAILURE_HEALTHCHECK_URL is required}
       BACKUP_SECRETS_FILE: /run/secrets/twenty-backup.env

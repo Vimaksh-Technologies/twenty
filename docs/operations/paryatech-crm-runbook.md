@@ -1656,12 +1656,14 @@ passed.
 
 The deployment authority for U9 is
 `docs/operations/twenty-dokploy-runbook.md`. Audit enablement is fail-closed: the exact
-pinned application release must have a real `AUDIT_LOGS` Enterprise entitlement;
-server and worker require distinct ingest, read, and maintenance URLs; the legacy
-single ClickHouse URL is prohibited; and a failed one-shot ClickHouse migration blocks
-both application processes. The private, persistent, digest-pinned ClickHouse service
-uses separate insert-only, read-only, bounded maintenance, backup-only, and loopback
-break-glass identities. Retention is migration-owned, and audit payloads must continue
+pinned application release must have a real `AUDIT_LOGS` Enterprise entitlement.
+Server and worker require only distinct ingest/read URLs and are prohibited from
+receiving migration, retention, backup, restore, or break-glass credentials; the legacy
+single ClickHouse URL is also prohibited. A failed one-shot migration blocks both
+application processes. The private, persistent, digest-pinned ClickHouse service uses
+separate insert-only, read-only, schema-migration, delete-only retention, backup-only,
+fixed-target restore-only, and loopback break-glass identities. Retention runs as an
+independently monitored operations-profile process, and audit payloads must continue
 to exclude secrets, raw payloads, business values, attachment data, and content
 snippets.
 
@@ -1674,21 +1676,24 @@ restricted rollout remains blocked.
 ## U10 core recovery operating addendum
 
 The U10 core recovery boundary is PostgreSQL, the complete general-file R2 snapshot,
-and the ClickHouse audit database. The backup service starts after PostgreSQL and the
-ClickHouse migration, independently of application-server health. A run succeeds only
-after all three stores, immutable uploads, download verification, canonical
-checksums/counts, and the scrubbed timestamp-bound manifest complete. Once a valid
-HTTPS failure-heartbeat endpoint exists, every other executable preflight or backup
-stage failure routes failure and suppresses success; an absent or invalid endpoint
-relies on the independent missing/late-success monitor. Cadence must fit RPO, retention
-cannot exceed deletion propagation, and permanent missing/late-success monitoring
-remains mandatory.
+and the ClickHouse audit database. Backup uses a separately proved `twenty_backup`
+PostgreSQL identity and never receives the application URL; the service starts after
+PostgreSQL and the ClickHouse migration, independently of application-server health.
+A run succeeds only after all three stores, immutable uploads, download verification,
+canonical checksums/counts, and the scrubbed timestamp-bound manifest complete. Once
+a valid HTTPS failure-heartbeat endpoint exists, every other executable preflight or
+backup stage failure routes failure and suppresses success; an absent or invalid
+endpoint relies on the independent missing/late-success monitor. Cadence must fit RPO,
+retention cannot exceed deletion propagation, and permanent missing/late-success
+monitoring remains mandatory.
 
 Restore requires root-owned `0600` inputs, a fixed empty
 `twenty_restore_validation` PostgreSQL database, the same fixed isolated ClickHouse
-database name, checksum and manifest-policy validation, atomic PostgreSQL restore,
-full general-file inventory verification, bounded audit assertions, and independent
-review by two recovery administrators. It never authorizes destructive cleanup.
+database name, the separately held `twenty_restore` identity, checksum and
+manifest-policy validation, atomic PostgreSQL restore, full general-file inventory
+verification, bounded audit assertions, and independent review by two recovery
+administrators. The restore identity cannot target another ClickHouse database or
+alter/delete restored data. The procedure never authorizes destructive cleanup.
 U8 supplies Gmail attachment retrieval and authorization behavior; live mirror
 deletion, reconnect, backup, and restore remain U13 acceptance and are not claimed by
 U10.

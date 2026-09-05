@@ -26,7 +26,6 @@ import { PreInstalledAppsModule } from 'src/engine/core-modules/application/pre-
 import { BillingReminderModule } from 'src/engine/core-modules/billing/reminders/billing-reminder.module';
 import { EnterpriseKeyValidationCronCommand } from 'src/engine/core-modules/enterprise/cron/command/enterprise-key-validation.cron.command';
 import { EnterpriseModule } from 'src/engine/core-modules/enterprise/enterprise.module';
-import { EventLogCleanupModule } from 'src/engine/core-modules/event-logs/cleanup/event-log-cleanup.module';
 import { FeatureFlagModule } from 'src/engine/core-modules/feature-flag/feature-flag.module';
 import { RotateSigningKeysCronCommand } from 'src/engine/core-modules/jwt/crons/commands/rotate-signing-keys.cron.command';
 import { FileModule } from 'src/engine/core-modules/file/file.module';
@@ -86,7 +85,6 @@ import { WorkflowCoreConsistencyModule } from 'src/modules/workflow/workflow-cor
     BillingReminderModule,
     CodeInterpreterSessionCleanupModule,
     PublicDomainModule,
-    EventLogCleanupModule,
     EnterpriseModule,
     TwentyConfigModule,
     MarketplaceModule,

@@ -107,15 +107,16 @@ only the Twenty HTTP server through the exact Traefik route.
 | PostgreSQL 16 | 1 CPU | 1.5 GiB | Persistent volume; private only; health check required |
 | Redis 7.4 | 0.25 CPU | 384 MiB | Private only; set eviction policy to `noeviction`; health check required |
 | ClickHouse 24.8 | 0.5 CPU | 1.5 GiB | Persistent data and backup-staging volumes; ports 8123/9000 internal only |
-| ClickHouse migration | 0.25 CPU | 512 MiB | One-shot immutable Twenty image; maintenance URL only; must complete successfully |
-| Backup | 0.25 CPU | 256 MiB | PostgreSQL, R2 files, and ClickHouse audit backup must all pass before heartbeat |
+| ClickHouse migration | 0.25 CPU | 512 MiB | One-shot immutable Twenty image; migration URL only; must complete successfully |
+| ClickHouse retention | 0.25 CPU | 256 MiB | Operations profile only; delete-only ClickHouse plus metadata-only PostgreSQL; independently monitored |
+| Backup | 0.25 CPU | 256 MiB | Read-only PostgreSQL, R2 files, and ClickHouse audit backup must all pass before heartbeat |
 
 ### Health checks, sequencing, and migrations
 
 1. Start PostgreSQL 16, Redis 7.4, and ClickHouse with health checks. Redis must use
    `noeviction`.
 2. After ClickHouse is healthy, compose starts the one-shot `clickhouse-migrate`
-   service with only the maintenance URL and runs `yarn clickhouse:migrate:prod`.
+   service with only the migration URL and runs `yarn clickhouse:migrate:prod`.
 3. Start the Twenty server only after the ClickHouse migration exits successfully and
    PostgreSQL/Redis are healthy. The server is the **only** long-running process that
    may execute PostgreSQL migrations; wait for its migration completion and application
@@ -126,7 +127,10 @@ only the Twenty HTTP server through the exact Traefik route.
 5. Start backup after PostgreSQL and ClickHouse are healthy and the ClickHouse
    migration has completed. Backup startup is deliberately independent of application
    server health so a server outage cannot prevent core recovery points.
-6. Run `yarn command:prod upgrade:status` in the target server-release context and
+6. Configure the permanent daily Dokploy retention schedule with the operations-profile
+   command. Prove its retry, success/failure heartbeat, and stale-success monitor before
+   removing any audit rows.
+7. Run `yarn command:prod upgrade:status` in the target server-release context and
    parse its result, rather than treating command exit alone as sufficient. Fail closed:
    do not proceed when the result reports a database that is behind, a failed upgrade,
    or any ambiguous/unparseable state. Preserve only a scrubbed status summary in the
@@ -382,19 +386,22 @@ provider-level encryption at rest has been proved. A Docker volume name is not e
 of encryption. Record the encrypted volume/device identity, key owner, recovery access,
 and test result in the protected change record before accepting audit data.
 
-The hardened audit release requires `AUDIT_LOGS_ENABLED=true` and three distinct,
-env-only secret URLs on both server and worker. Hardened mode never falls back to
-legacy `CLICKHOUSE_URL`; leave that legacy variable absent.
+The hardened audit release requires `AUDIT_LOGS_ENABLED=true` and exactly two
+env-only runtime URLs on server and worker. Hardened mode never falls back to legacy
+`CLICKHOUSE_URL`; leave that legacy variable absent.
 
-| Runtime variable | Required identity and capability |
+| Process variable | Required identity and capability |
 | --- | --- |
-| `CLICKHOUSE_INGEST_URL` | `twenty_ingest` on database `twenty`; `INSERT` only |
-| `CLICKHOUSE_READ_URL` | `twenty_audit_reviewer` on database `twenty`; `SELECT` only |
-| `CLICKHOUSE_MAINTENANCE_URL` | `twenty_maintenance` on database `twenty`; repository migrations, bounded retention, and isolated restore only |
+| `CLICKHOUSE_INGEST_URL` | Normal runtime only: `twenty_ingest` on `twenty`; `INSERT` only |
+| `CLICKHOUSE_READ_URL` | Normal runtime only: `twenty_audit_reviewer` on `twenty`; `SELECT` only |
+| `CLICKHOUSE_MIGRATION_URL` | One-shot migration only: `twenty_migration`; scoped schema/migration grants on `twenty.*` |
+| `CLICKHOUSE_RETENTION_URL` | Operations-profile retention only: `twenty_retention`; `ALTER DELETE` on `twenty.*` only |
 
-All three variables are required when `AUDIT_LOGS_ENABLED=true`. Store each whole URL
-as a separate Dokploy secret, never print it, and do not alias one identity into another.
-The ClickHouse user configuration reads the URL passwords only through these `from_env`
+Server and worker require only ingest/read and must not receive migration, retention,
+backup, restore, or loopback credentials. The one-shot processes reject missing
+role-specific URLs rather than falling back to another role. Store each whole URL as a
+separate Dokploy secret, never print it, and never alias one identity into another.
+The ClickHouse user configuration reads passwords only through these `from_env`
 references:
 
 | Secret/config reference | Purpose and allowed capability |
@@ -402,22 +409,36 @@ references:
 | `CLICKHOUSE_ADMIN_PASSWORD` | Loopback-only break-glass ClickHouse administrator |
 | `CLICKHOUSE_INGEST_PASSWORD` | `twenty_ingest`: `INSERT` on `twenty.*` only |
 | `CLICKHOUSE_AUDIT_REVIEWER_PASSWORD` | `twenty_audit_reviewer`: `SELECT` on `twenty.*` only |
-| `CLICKHOUSE_MAINTENANCE_PASSWORD` | `twenty_maintenance`: explicit migration/retention grants on `twenty.*` plus create/insert/select only on `twenty_restore_validation.*` |
+| `CLICKHOUSE_MIGRATION_PASSWORD` | `twenty_migration`: one-shot create/select/insert/alter/drop schema work on `twenty.*`; no user/grant management |
+| `CLICKHOUSE_RETENTION_PASSWORD` | `twenty_retention`: `ALTER DELETE` on `twenty.*` only |
 | `CLICKHOUSE_BACKUP_PASSWORD` | `twenty_backup`: `SELECT` and `BACKUP` on `twenty.*` only |
+| `CLICKHOUSE_RESTORE_PASSWORD` | `twenty_restore`: `BACKUP` on `twenty.*` plus create/insert/select only on `twenty_restore_validation.*` |
 
 Compose runs the immutable Twenty image once as `clickhouse-migrate` with only
-`AUDIT_LOGS_ENABLED=true` and `CLICKHOUSE_MAINTENANCE_URL`. It waits for ClickHouse
+`AUDIT_LOGS_ENABLED=true` and `CLICKHOUSE_MIGRATION_URL`. It waits for ClickHouse
 health and executes `yarn clickhouse:migrate:prod`; server and worker wait for its
 successful completion. A failed or ambiguous migration prevents both processes from
-starting. The runtime service then routes writes, reads, and bounded maintenance through
-their distinct clients. Do not add `CLICKHOUSE_URL`, broaden `twenty_ingest`, or start
-server/worker around a failed migration.
+starting.
 
-The maintenance identity has no user/grant-management privilege. Its source-database
-DDL/DML grants exist only for repository migrations and approved retention, and its
-restore-target grants apply only to the fixed `twenty_restore_validation` database.
-The backup identity cannot restore or mutate. The loopback-only administrator is
-reserved for separately approved recovery/cleanup and is not a runtime URL.
+Retention is not registered in the normal server/worker cron queues. A permanent
+Dokploy schedule runs
+`docker compose --profile operations run --rm clickhouse-retention`; that bounded
+process receives only the delete-only ClickHouse URL, a metadata-only PostgreSQL URL,
+and distinct success/failure heartbeat routes. Configure a daily schedule with
+overlapping runs disabled and a 30-minute external execution deadline. The process
+uses a 15-second PostgreSQL connection timeout, 60-second PostgreSQL/ClickHouse query
+timeouts, and a 10-second heartbeat timeout. It retries each mutation three times,
+waits five seconds between attempts, requires synchronous mutation completion, sends
+success only after every active workspace/table passes, and sends failure after any
+exhausted retry or bounded-identity check. Missing/late success, including forced
+deadline termination, independently alerts. Do not add any destructive ClickHouse
+credential to server or worker.
+
+Migration, retention, backup, and restore identities have no user/grant-management
+privilege. Migration can create only `twenty`; retention cannot select or change
+schema; backup cannot restore or mutate; restore can create/insert/select only in the
+fixed `twenty_restore_validation` database. The loopback-only administrator is
+reserved for separately approved recovery/cleanup and is not a process URL.
 
 ### Enterprise and content gates
 
@@ -432,10 +453,11 @@ restricted-data rollout.
 
 In staging, after schema migration, prove that representative object and administrator
 events reach ClickHouse; `twenty_ingest` can insert but cannot select/alter/delete;
-`twenty_audit_reviewer` can select but cannot insert/alter/delete; and the backup
-identity can back up but cannot restore or mutate. Also prove the maintenance identity
-can execute only the approved migration/retention procedure. Record query classes and
-pass/fail, not SQL containing business values.
+`twenty_audit_reviewer` can select but cannot insert/alter/delete; `twenty_retention`
+can run bounded `ALTER DELETE` but cannot select/drop/create; `twenty_backup` can back
+up but cannot restore/mutate; and `twenty_restore` can restore only to
+`twenty_restore_validation` and cannot alter/delete restored rows. Record query classes
+and pass/fail, not SQL containing business values.
 
 Audit payloads may contain approved identifiers, event classification, actor, reason,
 and evidence references only. Authentication data, environment/config values, message
@@ -462,6 +484,32 @@ separately authorized lifecycle matching the approved retention/deletion-propaga
 inputs. Script-level `--immutable` detects collisions; it does not establish external
 immutability.
 
+### PostgreSQL backup and retention identities
+
+Never inject the application `PG_DATABASE_URL` into backup or retention. Provision
+`twenty_backup` as a separate login with `NOSUPERUSER NOCREATEDB NOCREATEROLE
+NOREPLICATION NOBYPASSRLS`, `CONNECT` on the `twenty` database, membership in
+PostgreSQL's predefined `pg_read_all_data` role, and
+`default_transaction_read_only=on`. Set `BACKUP_PG_DATABASE_URL` to that identity,
+`BACKUP_PG_DATABASE_USER=twenty_backup`, and `APP_PG_DATABASE_USER` to the distinct
+application role name. The backup entrypoint rejects `PG_DATABASE_URL`, aliased role
+names, elevated role attributes, a writable transaction, or discovered table write
+privileges before `pg_dump`.
+
+Before deployment, a recovery administrator must separately prove that the application
+connection reports `current_user=PG_DATABASE_USER`; pass only that non-secret role name
+to backup/retention for alias rejection.
+
+Provision `twenty_retention` separately with the same non-elevated role attributes,
+`CONNECT` on `twenty`, `USAGE` on schema `core`, `SELECT` on
+`core.workspace(id, "eventLogRetentionDays", "activationStatus")`, and
+`default_transaction_read_only=on`; grant no other table access. Use it only in
+`RETENTION_PG_DATABASE_URL` with
+`RETENTION_PG_DATABASE_USER=twenty_retention`. Before activation, prove
+`twenty_backup` completes a custom-format `pg_dump` but cannot insert/update/delete,
+and prove `twenty_retention` reads the three approved workspace columns but cannot
+read unrelated tables or write. Record only role names, query classes, and pass/fail.
+
 ## Backup policy, manifest, and failure contract
 
 The deployment must supply every input below from the approved CRM Operating Policy.
@@ -470,6 +518,9 @@ There are no silent cadence or recovery defaults.
 | Variable | Required contract |
 | --- | --- |
 | `TWENTY_BACKUP_IMAGE_REF` | Published backup image pinned by `@sha256`; compose and the manifest use the same identity |
+| `BACKUP_PG_DATABASE_URL` | Required `twenty_backup` URL; distinct read-only identity, never the application URL |
+| `BACKUP_PG_DATABASE_USER` | Exact expected backup role name checked against the connected PostgreSQL identity |
+| `APP_PG_DATABASE_USER` | Non-secret application role name used only for alias rejection |
 | `TWENTY_IMAGE_REF` | Exact immutable application image deployed to server and worker |
 | `TWENTY_APP_RELEASE` | Approved Release A/B identifier containing no customer data |
 | `BACKUP_INTERVAL_SECONDS` | Positive cadence; cannot exceed `RECOVERY_RPO_MINUTES × 60` |
@@ -513,19 +564,21 @@ that lifecycle, deletion propagation, encryption, or immutability is configured.
 ### Safe isolated core restore
 
 The executable `verify-core-restore <UTC timestamp>` command restores only to explicitly
-isolated targets. It requires `ALLOW_ISOLATED_RESTORE=YES`, rejects the live PostgreSQL
-URL, verifies that PostgreSQL reports the fixed `twenty_restore_validation` database
-with no non-system relations, rejects the source ClickHouse database, and requires the
-same fixed ClickHouse target name. It never drops or overwrites a database and leaves
-restored databases in place for two-administrator review and separately approved
-cleanup.
+isolated targets. It requires `ALLOW_ISOLATED_RESTORE=YES`, rejects the backup-source
+PostgreSQL URL, verifies that PostgreSQL reports the fixed
+`twenty_restore_validation` database with no non-system relations, rejects the source
+ClickHouse database, requires `RESTORE_CLICKHOUSE_USER=twenty_restore`, and requires
+the same fixed ClickHouse target name. It never drops or overwrites a database and
+leaves restored databases in place for two-administrator review and separately
+approved cleanup.
 
 Prepare five root-owned `0600` inputs in approved encrypted temporary storage without
 printing them:
 
-1. the normal backup secret file, read-only backup credentials only;
+1. the normal backup secret file, containing only R2 and `twenty_backup` ClickHouse
+   credentials;
 2. a separate restore secret file containing the isolated PostgreSQL URL and the
-   separately held ClickHouse restore identity/target;
+   separately held `twenty_restore` identity/password plus the fixed target;
 3. a PostgreSQL verification SQL file whose assertions fail unless sampled core
    relations, object metadata, role/permission assignments, and notification-only
    workflow definitions match the protected expected report;
@@ -575,6 +628,7 @@ does not pass.
 | PostgreSQL | `pg_isready`, connections, errors, volume growth/free space, backup/restore age | Primary recovery administrator → second recovery administrator |
 | Redis | authenticated availability, restart, memory/noeviction pressure and command failure | Platform owner → second recovery administrator |
 | ClickHouse | availability, ingestion/backup denial, entitlement/query/retention failure, data and staging free space | Audit owner → recovery administrators |
+| Audit retention | immediate failure heartbeat, missing success, exhausted mutation retry, age beyond daily cadence | Audit owner → recovery administrators → security/data owners |
 | General and backup R2 | authenticated read/write/check failure, quota, encryption/lifecycle/Object Lock drift | Data owner → recovery administrators and security owner |
 | Host disk/swap/capacity | root/data free space, inode pressure, swap use, sustained CPU/RAM versus ceilings | Platform owner → second recovery administrator |
 | Google OAuth and SMTP | consent/revocation/auth errors, sync staleness, TLS/send failure, bounce/reply reconciliation backlog | Integration owner → security owner and operations owner |
@@ -604,9 +658,9 @@ URLs, object keys, customer data, or secret environment values.
 3. Use an SSH-tunnel fallback **only** if Traefik Basic Auth cannot safely be used;
    record why Basic Auth was unsafe and the fallback authorization in the protected
    change record. Do not expose a temporary public route without one of these gates.
-4. Deploy the pinned initial images with the six bounded services, persistent
-   PostgreSQL/ClickHouse storage, private internal connections, and documented startup
-   order.
+4. Deploy the pinned initial images with seven normal services plus the isolated
+   operations-profile retention job, persistent PostgreSQL/ClickHouse storage, private
+   internal connections, and documented startup order.
 5. Run only the Twenty-supported initialization/migration command for the pinned
    release, recording its success without copying sensitive output.
 6. Create the first administrator through the supported Twenty bootstrap flow. Record
@@ -635,12 +689,14 @@ URLs, object keys, customer data, or secret environment values.
    closed for behind, failed, or ambiguous status; resolve the state before deployment.
 5. Deploy the pinned compose through Dokploy, keeping documented resource limits
    unchanged unless a separately approved capacity change exists.
-6. Verify dependency health → one-shot ClickHouse migration with the maintenance URL →
+6. Verify dependency health → one-shot ClickHouse migration with the migration URL →
    server PostgreSQL migration/health → worker startup. Compose must keep server/worker
    stopped if `clickhouse-migrate` fails.
-7. Watch migrations, server/worker/ClickHouse health, audit ingestion/denial, HTTP/TLS,
-   backup, and error rates.
-8. Run the deployment verification checklist. If rollback criteria are met, stop the
+7. Run the operations-profile retention job and prove its bounded credentials,
+   three-attempt retry, failure/success heartbeats, and independent stale monitor.
+8. Watch migrations, server/worker/ClickHouse health, audit ingestion/denial, retention,
+   HTTP/TLS, backup, and error rates.
+9. Run the deployment verification checklist. If rollback criteria are met, stop the
    rollout, preserve logs, and use the approved restore/rollback plan rather than
    improvising data changes.
 
@@ -667,8 +723,8 @@ URLs, object keys, customer data, or secret environment values.
 - [ ] Dokploy exact route for `twenty.paryatech.in` is present and no duplicate route exists.
 - [ ] HTTPS serves the intended Twenty deployment with a valid hostname certificate.
 - [ ] Twenty, backup, PostgreSQL, Redis, and ClickHouse images are pinned to immutable digests; application release, source release, rollback digest, and platform manifests are recorded.
-- [ ] Server, worker, PostgreSQL 16, Redis 7.4, ClickHouse 24.8, one-shot migration, and backup use the documented ceilings; only the server is publicly routed.
-- [ ] PostgreSQL/Redis/ClickHouse health checks pass; `clickhouse-migrate` then completes with the maintenance URL before server migration/health and worker startup.
+- [ ] Server, worker, PostgreSQL 16, Redis 7.4, ClickHouse 24.8, one-shot migration, operations-profile retention, and backup use the documented ceilings; only the server is publicly routed.
+- [ ] PostgreSQL/Redis/ClickHouse health checks pass; `clickhouse-migrate` then completes with the migration URL before server migration/health and worker startup.
 - [ ] `yarn command:prod upgrade:status` was parsed in the target server-release context and is neither behind, failed, nor ambiguous.
 - [ ] PostgreSQL and ClickHouse persistence and private service connectivity are verified; ClickHouse ports are not published.
 - [ ] Primary and backup R2 buckets are distinct, private, least-privilege, and usable without disclosing credentials.
@@ -678,10 +734,11 @@ URLs, object keys, customer data, or secret environment values.
 - [ ] SMTP remains `LOGGER` until the live U10 gate; activation proves authenticated TLS, local failure, provider acceptance, bounce/reply reconciliation, redacted evidence, and no campaign/contact-count interpretation.
 - [ ] `LOGIC_FUNCTION_TYPE` and `CODE_INTERPRETER_TYPE` remain `DISABLED` on server and worker.
 - [ ] Real Enterprise `AUDIT_LOGS` entitlement is valid on the pinned release; absent/expired entitlement blocks high-risk/restricted rollout without a fabricated override.
-- [ ] `AUDIT_LOGS_ENABLED=true`; all three role URLs are required and distinct; legacy `CLICKHOUSE_URL` is absent; server/worker never start around a failed migration.
-- [ ] Ingestion INSERT succeeds while SELECT/ALTER/DELETE fails; reviewer SELECT succeeds while INSERT/ALTER/DELETE fails; maintenance migration/retention and fixed isolated restore succeed without user/grant management; backup succeeds but cannot restore/mutate.
+- [ ] `AUDIT_LOGS_ENABLED=true`; server/worker have exactly the distinct ingest/read URLs and no destructive role; migration and retention each have a separate one-shot URL; legacy `CLICKHOUSE_URL` is absent; server/worker never start around a failed migration.
+- [ ] Ingestion INSERT succeeds while SELECT/ALTER/DELETE fails; reviewer SELECT succeeds while INSERT/ALTER/DELETE fails; migration is schema-scoped; retention can only `ALTER DELETE`; backup succeeds but cannot restore/mutate; restore succeeds only into `twenty_restore_validation` and cannot alter/delete.
 - [ ] PostgreSQL, ClickHouse, `server-local-data`, Docker state, ClickHouse staging, both R2 buckets, retained exports, and backups have provider/device encryption and recovery-key evidence.
 - [ ] `twenty-backup.env` is verified as root:root `0600` without output; both recovery administrators prove protected independent access.
+- [ ] `PG_DATABASE_URL` is absent from backup/retention; `twenty_backup` passes `pg_dump` but cannot write; `twenty_retention` reads only approved workspace retention columns; both identities differ from the application role.
 - [ ] Approved cadence/retention/deletion-propagation/RPO/RTO values pass the script constraints and the external protected lifecycle.
 - [ ] PostgreSQL, general R2 file copy/checksum-index/count, ClickHouse native archive, every immutable upload/download verification, and scrubbed manifest complete before success heartbeat; each forced preflight/store/upload/manifest failure sends failure and suppresses success.
 - [ ] The manifest contains exact artifact identities/checksums/counts/bytes/application and backup image digests/release/policy inputs and no secret, endpoint, PII, CRM value, or object key.

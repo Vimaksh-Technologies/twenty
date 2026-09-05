@@ -5,11 +5,9 @@ import {
   getMissingClickHouseAuditUrlKeys,
 } from 'src/engine/core-modules/twenty-config/config-variables';
 
-const CLICKHOUSE_ROLE_URLS = {
+const CLICKHOUSE_RUNTIME_URLS = {
   CLICKHOUSE_INGEST_URL: 'http://ingest:secret@clickhouse:8123/twenty',
   CLICKHOUSE_READ_URL: 'http://reader:secret@clickhouse:8123/twenty',
-  CLICKHOUSE_MAINTENANCE_URL:
-    'http://maintenance:secret@clickhouse:8123/twenty',
 } as const;
 
 const clickHouseValidationErrors = (values: Record<string, unknown>) => {
@@ -19,11 +17,11 @@ const clickHouseValidationErrors = (values: Record<string, unknown>) => {
 };
 
 describe('ClickHouse config validation', () => {
-  it.each(Object.keys(CLICKHOUSE_ROLE_URLS))(
+  it.each(Object.keys(CLICKHOUSE_RUNTIME_URLS))(
     'requires %s when hardened audit logs are enabled',
     (missingKey) => {
       const urls = Object.fromEntries(
-        Object.entries(CLICKHOUSE_ROLE_URLS).filter(
+        Object.entries(CLICKHOUSE_RUNTIME_URLS).filter(
           ([key]) => key !== missingKey,
         ),
       );
@@ -37,11 +35,11 @@ describe('ClickHouse config validation', () => {
     },
   );
 
-  it('accepts all role URLs when hardened audit logs are enabled', () => {
+  it('accepts only runtime role URLs when hardened audit logs are enabled', () => {
     expect(
       clickHouseValidationErrors({
         AUDIT_LOGS_ENABLED: true,
-        ...CLICKHOUSE_ROLE_URLS,
+        ...CLICKHOUSE_RUNTIME_URLS,
       }),
     ).toEqual([]);
   });
