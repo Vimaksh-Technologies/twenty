@@ -12,6 +12,7 @@ import { OAuth2ClientManagerModule } from 'src/modules/connected-account/oauth2-
 import { MessagingCommonModule } from 'src/modules/messaging/common/messaging-common.module';
 import { GmailGetHistoryService } from 'src/modules/messaging/message-import-manager/drivers/gmail/services/gmail-get-history.service';
 import { GmailGetMessageListService } from 'src/modules/messaging/message-import-manager/drivers/gmail/services/gmail-get-message-list.service';
+import { GmailImportAttachmentsService } from 'src/modules/messaging/message-import-manager/drivers/gmail/services/gmail-import-attachments.service';
 import { GmailGetMessagesService } from 'src/modules/messaging/message-import-manager/drivers/gmail/services/gmail-get-messages.service';
 import { GmailMessageListFetchErrorHandler } from 'src/modules/messaging/message-import-manager/drivers/gmail/services/gmail-message-list-fetch-error-handler.service';
 import { GmailMessagesImportErrorHandler } from 'src/modules/messaging/message-import-manager/drivers/gmail/services/gmail-messages-import-error-handler.service';
@@ -31,12 +32,14 @@ import { MessageParticipantManagerModule } from 'src/modules/messaging/message-p
   ],
   providers: [
     GmailGetHistoryService,
+    GmailImportAttachmentsService,
     GmailGetMessagesService,
     GmailGetMessageListService,
     GmailMessageListFetchErrorHandler,
     GmailMessagesImportErrorHandler,
   ],
   exports: [
+    GmailImportAttachmentsService,
     GmailGetMessagesService,
     GmailGetMessageListService,
     GmailMessageListFetchErrorHandler,

@@ -1,14 +1,27 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-import { isString } from '@sniptt/guards';
+import { isNonEmptyString, isString } from '@sniptt/guards';
 import { type GaxiosError } from 'gaxios';
 import { google } from 'googleapis';
 
+import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
 import { parseGaxiosError } from 'src/modules/calendar/calendar-event-import-manager/drivers/google-calendar/utils/parse-gaxios-error.util';
 import { parseGoogleCalendarError } from 'src/modules/calendar/calendar-event-import-manager/drivers/google-calendar/utils/parse-google-calendar-error.util';
 import { type GetCalendarEventsResponse } from 'src/modules/calendar/calendar-event-import-manager/services/calendar-get-events.service';
 import { GoogleOAuth2ClientProvider } from 'src/modules/connected-account/oauth2-client-manager/drivers/google/google-oauth2-client.provider';
 import { type ConnectedAccountEntity } from 'src/engine/metadata-modules/connected-account/entities/connected-account.entity';
+
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+
+const computeInitialSyncTimeMin = (lookbackDays: number): string => {
+  if (!Number.isInteger(lookbackDays) || lookbackDays <= 0) {
+    throw new Error('Initial sync lookback days must be a positive integer');
+  }
+
+  return new Date(
+    Date.now() - lookbackDays * MILLISECONDS_PER_DAY,
+  ).toISOString();
+};
 
 @Injectable()
 export class GoogleCalendarGetEventsService {
@@ -16,12 +29,19 @@ export class GoogleCalendarGetEventsService {
 
   constructor(
     private readonly googleOAuth2ClientProvider: GoogleOAuth2ClientProvider,
+    private readonly twentyConfigService: TwentyConfigService,
   ) {}
 
   public async getCalendarEvents(
     connectedAccount: Pick<ConnectedAccountEntity, 'provider' | 'id'>,
     syncCursor?: string,
   ): Promise<GetCalendarEventsResponse> {
+    const timeMin = isNonEmptyString(syncCursor)
+      ? undefined
+      : computeInitialSyncTimeMin(
+          this.twentyConfigService.get('MESSAGING_INITIAL_SYNC_LOOKBACK_DAYS'),
+        );
+
     const oAuth2Client = await this.googleOAuth2ClientProvider.getClient(
       connectedAccount.id,
     );
@@ -45,6 +65,7 @@ export class GoogleCalendarGetEventsService {
           maxResults: 500,
           singleEvents: true,
           syncToken: syncCursor,
+          timeMin,
           pageToken: nextPageToken,
           showDeleted: true,
         })

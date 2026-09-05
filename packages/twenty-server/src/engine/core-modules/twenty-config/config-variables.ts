@@ -9,6 +9,7 @@ import {
   IsInt,
   IsNotEmpty,
   IsOptional,
+  IsPositive,
   IsString,
   IsUrl,
   ValidateIf,
@@ -318,6 +319,17 @@ export class ConfigVariables {
   @CastToPositiveNumber()
   @IsOptional()
   MESSAGING_MESSAGES_GET_BATCH_SIZE = 400;
+
+  @ConfigVariablesMetadata({
+    group: ConfigVariablesGroup.ADVANCED_SETTINGS,
+    description:
+      'Number of days included when Gmail and Google Calendar synchronize for the first time',
+    type: ConfigVariableType.NUMBER,
+  })
+  @CastToPositiveNumber()
+  @IsInt()
+  @IsPositive()
+  MESSAGING_INITIAL_SYNC_LOOKBACK_DAYS = 90;
 
   @ConfigVariablesMetadata({
     group: ConfigVariablesGroup.MICROSOFT_AUTH,

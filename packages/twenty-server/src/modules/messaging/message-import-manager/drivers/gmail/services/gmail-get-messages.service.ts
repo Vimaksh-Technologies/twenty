@@ -167,7 +167,7 @@ export class GmailGetMessagesService {
     const results = await Promise.all(
       messageIds.map((messageId) =>
         gmailClient.users.messages
-          .get({ userId: 'me', id: messageId })
+          .get({ userId: 'me', id: messageId, format: 'full' })
           .then((response) => ({ messageId, data: response.data, error: null }))
           .catch((error) => ({ messageId, data: null, error })),
       ),
