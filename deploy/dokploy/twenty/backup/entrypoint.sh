@@ -3,20 +3,10 @@ set -eu
 
 umask 077
 
-: "${BACKUP_PG_DATABASE_URL:?BACKUP_PG_DATABASE_URL is required}"
-: "${BACKUP_PG_DATABASE_USER:?BACKUP_PG_DATABASE_USER is required}"
-: "${APP_PG_DATABASE_USER:?APP_PG_DATABASE_USER is required}"
 : "${BACKUP_HEALTHCHECK_URL:?BACKUP_HEALTHCHECK_URL is required}"
 : "${BACKUP_FAILURE_HEALTHCHECK_URL:?BACKUP_FAILURE_HEALTHCHECK_URL is required}"
-: "${BACKUP_SECRETS_FILE:?BACKUP_SECRETS_FILE is required}"
-: "${BACKUP_INTERVAL_SECONDS:?BACKUP_INTERVAL_SECONDS is required}"
-: "${BACKUP_RETENTION_DAYS:?BACKUP_RETENTION_DAYS is required}"
-: "${DELETION_PROPAGATION_DAYS:?DELETION_PROPAGATION_DAYS is required}"
-: "${RECOVERY_RPO_MINUTES:?RECOVERY_RPO_MINUTES is required}"
-: "${RECOVERY_RTO_MINUTES:?RECOVERY_RTO_MINUTES is required}"
-: "${TWENTY_IMAGE_REF:?TWENTY_IMAGE_REF is required}"
-: "${TWENTY_APP_RELEASE:?TWENTY_APP_RELEASE is required}"
-: "${BACKUP_IMAGE_REF:?BACKUP_IMAGE_REF is required}"
+: "${BACKUP_MODE:=clickhouse-inclusive}"
+: "${AUDIT_LOGS_ENABLED:=true}"
 : "${CLICKHOUSE_BACKUP_STAGING_PATH:=/var/lib/clickhouse/backups}"
 case "$BACKUP_FAILURE_HEALTHCHECK_URL" in
   https://*) ;;
@@ -29,6 +19,34 @@ if [ "$BACKUP_HEALTHCHECK_URL" = "$BACKUP_FAILURE_HEALTHCHECK_URL" ]; then
   echo "Backup success and failure heartbeat endpoints must be distinct" >&2
   exit 1
 fi
+
+send_failure_heartbeat() {
+  curl --fail --silent --output /dev/null "$BACKUP_FAILURE_HEALTHCHECK_URL" || :
+}
+
+preflight_cleanup() {
+  preflight_status=$?
+  trap - EXIT HUP INT TERM
+  if [ "$preflight_status" -ne 0 ]; then
+    send_failure_heartbeat
+  fi
+  exit "$preflight_status"
+}
+
+trap preflight_cleanup EXIT HUP INT TERM
+
+: "${BACKUP_PG_DATABASE_URL:?BACKUP_PG_DATABASE_URL is required}"
+: "${BACKUP_PG_DATABASE_USER:?BACKUP_PG_DATABASE_USER is required}"
+: "${APP_PG_DATABASE_USER:?APP_PG_DATABASE_USER is required}"
+: "${BACKUP_SECRETS_FILE:?BACKUP_SECRETS_FILE is required}"
+: "${BACKUP_INTERVAL_SECONDS:?BACKUP_INTERVAL_SECONDS is required}"
+: "${BACKUP_RETENTION_DAYS:?BACKUP_RETENTION_DAYS is required}"
+: "${DELETION_PROPAGATION_DAYS:?DELETION_PROPAGATION_DAYS is required}"
+: "${RECOVERY_RPO_MINUTES:?RECOVERY_RPO_MINUTES is required}"
+: "${RECOVERY_RTO_MINUTES:?RECOVERY_RTO_MINUTES is required}"
+: "${TWENTY_IMAGE_REF:?TWENTY_IMAGE_REF is required}"
+: "${TWENTY_APP_RELEASE:?TWENTY_APP_RELEASE is required}"
+: "${BACKUP_IMAGE_REF:?BACKUP_IMAGE_REF is required}"
 
 verify_root_secret_file() {
   protected_file=$1
@@ -186,20 +204,6 @@ verify_backup_pg_identity() {
   fi
 }
 
-send_failure_heartbeat() {
-  curl --fail --silent --output /dev/null "$BACKUP_FAILURE_HEALTHCHECK_URL" || :
-}
-
-preflight_cleanup() {
-  preflight_status=$?
-  trap - EXIT HUP INT TERM
-  if [ "$preflight_status" -ne 0 ]; then
-    send_failure_heartbeat
-  fi
-  exit "$preflight_status"
-}
-
-trap preflight_cleanup EXIT HUP INT TERM
 
 if [ "${PG_DATABASE_URL+x}" = 'x' ]; then
   echo "PG_DATABASE_URL is prohibited in backup" >&2
@@ -228,11 +232,7 @@ for required_var in \
   BACKUP_R2_ENDPOINT \
   BACKUP_R2_ACCESS_KEY_ID \
   BACKUP_R2_SECRET_ACCESS_KEY \
-  BACKUP_R2_BUCKET \
-  CLICKHOUSE_BACKUP_HOST \
-  CLICKHOUSE_BACKUP_USER \
-  CLICKHOUSE_BACKUP_PASSWORD \
-  CLICKHOUSE_BACKUP_DATABASE; do
+  BACKUP_R2_BUCKET; do
   eval "required_value=\${$required_var-}"
   if [ -z "$required_value" ]; then
     echo "Backup configuration is missing $required_var" >&2
@@ -240,10 +240,66 @@ for required_var in \
   fi
 done
 
-if [ "$CLICKHOUSE_BACKUP_USER" != 'twenty_backup' ]; then
-  echo "Isolated ClickHouse backup user must be twenty_backup" >&2
-  exit 1
-fi
+case "$BACKUP_MODE" in
+  core-only)
+    if [ "$AUDIT_LOGS_ENABLED" != 'false' ]; then
+      echo "BACKUP_MODE=core-only requires AUDIT_LOGS_ENABLED=false" >&2
+      exit 1
+    fi
+    for prohibited_var in \
+      CLICKHOUSE_URL \
+      CLICKHOUSE_INGEST_URL \
+      CLICKHOUSE_READ_URL \
+      CLICKHOUSE_MIGRATION_URL \
+      CLICKHOUSE_RETENTION_URL \
+      CLICKHOUSE_ADMIN_PASSWORD \
+      CLICKHOUSE_INGEST_PASSWORD \
+      CLICKHOUSE_AUDIT_REVIEWER_PASSWORD \
+      CLICKHOUSE_MIGRATION_PASSWORD \
+      CLICKHOUSE_RETENTION_PASSWORD \
+      CLICKHOUSE_RESTORE_PASSWORD \
+      CLICKHOUSE_BACKUP_HOST \
+      CLICKHOUSE_BACKUP_USER \
+      CLICKHOUSE_BACKUP_PASSWORD \
+      CLICKHOUSE_BACKUP_DATABASE \
+      RESTORE_CLICKHOUSE_HOST \
+      RESTORE_CLICKHOUSE_USER \
+      RESTORE_CLICKHOUSE_PASSWORD \
+      RESTORE_CLICKHOUSE_DATABASE; do
+      eval "prohibited_value=\${$prohibited_var-}"
+      if [ -n "$prohibited_value" ]; then
+        echo "ClickHouse configuration is prohibited in core-only mode" >&2
+        exit 1
+      fi
+    done
+    ;;
+  clickhouse-inclusive)
+    if [ "$AUDIT_LOGS_ENABLED" != 'true' ]; then
+      echo "ClickHouse-inclusive backup requires AUDIT_LOGS_ENABLED=true" >&2
+      exit 1
+    fi
+    for required_var in \
+      CLICKHOUSE_BACKUP_HOST \
+      CLICKHOUSE_BACKUP_USER \
+      CLICKHOUSE_BACKUP_PASSWORD \
+      CLICKHOUSE_BACKUP_DATABASE; do
+      eval "required_value=\${$required_var-}"
+      if [ -z "$required_value" ]; then
+        echo "Backup configuration is missing $required_var" >&2
+        exit 1
+      fi
+    done
+    if [ "$CLICKHOUSE_BACKUP_USER" != 'twenty_backup' ]; then
+      echo "Isolated ClickHouse backup user must be twenty_backup" >&2
+      exit 1
+    fi
+    validate_identifier CLICKHOUSE_BACKUP_DATABASE "$CLICKHOUSE_BACKUP_DATABASE"
+    ;;
+  *)
+    echo "BACKUP_MODE must be core-only or clickhouse-inclusive" >&2
+    exit 1
+    ;;
+esac
 
 for encrypted_endpoint in \
   "$PRIMARY_R2_ENDPOINT" \
@@ -263,11 +319,17 @@ validate_positive_integer BACKUP_RETENTION_DAYS "$BACKUP_RETENTION_DAYS"
 validate_positive_integer DELETION_PROPAGATION_DAYS "$DELETION_PROPAGATION_DAYS"
 validate_positive_integer RECOVERY_RPO_MINUTES "$RECOVERY_RPO_MINUTES"
 validate_positive_integer RECOVERY_RTO_MINUTES "$RECOVERY_RTO_MINUTES"
-validate_identifier CLICKHOUSE_BACKUP_DATABASE "$CLICKHOUSE_BACKUP_DATABASE"
 validate_app_release
 validate_image_ref TWENTY_IMAGE_REF "$TWENTY_IMAGE_REF"
 validate_image_ref BACKUP_IMAGE_REF "$BACKUP_IMAGE_REF"
 
+if [ "$BACKUP_MODE" = 'core-only' ] && {
+  [ "$BACKUP_RETENTION_DAYS" -ne 30 ] ||
+    [ "$DELETION_PROPAGATION_DAYS" -ne 30 ]
+}; then
+  echo "Core-only backup retention and deletion propagation must be exactly 30 days" >&2
+  exit 1
+fi
 if [ "$BACKUP_RETENTION_DAYS" -gt "$DELETION_PROPAGATION_DAYS" ]; then
   echo "BACKUP_RETENTION_DAYS cannot exceed DELETION_PROPAGATION_DAYS" >&2
   exit 1
@@ -342,19 +404,21 @@ backup_once() {
     "$backup_tmpdir/general-files.sha256"
   general_files_checksum=$(sha256sum "$backup_tmpdir/general-files.sha256" | cut -d ' ' -f 1)
 
-  clickhouse_backup_path="$CLICKHOUSE_BACKUP_STAGING_PATH/audit/${backup_timestamp}.zip"
-  mkdir -p "$CLICKHOUSE_BACKUP_STAGING_PATH/audit"
-  CLICKHOUSE_PASSWORD="$CLICKHOUSE_BACKUP_PASSWORD" \
-    clickhouse client \
-      --host "$CLICKHOUSE_BACKUP_HOST" \
-      --user "$CLICKHOUSE_BACKUP_USER" \
-      --query "BACKUP DATABASE \`$CLICKHOUSE_BACKUP_DATABASE\` TO Disk('audit_backups', 'audit/${backup_timestamp}.zip')" \
-      >/dev/null
-  if [ ! -f "$clickhouse_backup_path" ]; then
-    echo "ClickHouse backup artifact is unavailable" >&2
-    return 1
+  if [ "$BACKUP_MODE" = 'clickhouse-inclusive' ]; then
+    clickhouse_backup_path="$CLICKHOUSE_BACKUP_STAGING_PATH/audit/${backup_timestamp}.zip"
+    mkdir -p "$CLICKHOUSE_BACKUP_STAGING_PATH/audit"
+    CLICKHOUSE_PASSWORD="$CLICKHOUSE_BACKUP_PASSWORD" \
+      clickhouse client \
+        --host "$CLICKHOUSE_BACKUP_HOST" \
+        --user "$CLICKHOUSE_BACKUP_USER" \
+        --query "BACKUP DATABASE \`$CLICKHOUSE_BACKUP_DATABASE\` TO Disk('audit_backups', 'audit/${backup_timestamp}.zip')" \
+        >/dev/null
+    if [ ! -f "$clickhouse_backup_path" ]; then
+      echo "ClickHouse backup artifact is unavailable" >&2
+      return 1
+    fi
+    clickhouse_checksum=$(sha256sum "$clickhouse_backup_path" | cut -d ' ' -f 1)
   fi
-  clickhouse_checksum=$(sha256sum "$clickhouse_backup_path" | cut -d ' ' -f 1)
 
   rclone copyto --immutable "$backup_tmpdir/twenty.dump" \
     "backup:${BACKUP_R2_BUCKET}/${database_identity}"
@@ -392,13 +456,16 @@ backup_once() {
     "$general_files_checksum" \
     "$backup_tmpdir/verified-general-files-index.sha256"
 
-  rclone copyto --immutable "$clickhouse_backup_path" \
-    "backup:${BACKUP_R2_BUCKET}/${clickhouse_identity}"
-  rclone copyto "backup:${BACKUP_R2_BUCKET}/${clickhouse_identity}" \
-    "$backup_tmpdir/verified-clickhouse.zip"
-  verify_sha256 "$clickhouse_checksum" "$backup_tmpdir/verified-clickhouse.zip"
+  if [ "$BACKUP_MODE" = 'clickhouse-inclusive' ]; then
+    rclone copyto --immutable "$clickhouse_backup_path" \
+      "backup:${BACKUP_R2_BUCKET}/${clickhouse_identity}"
+    rclone copyto "backup:${BACKUP_R2_BUCKET}/${clickhouse_identity}" \
+      "$backup_tmpdir/verified-clickhouse.zip"
+    verify_sha256 "$clickhouse_checksum" "$backup_tmpdir/verified-clickhouse.zip"
+  fi
 
   jq -n -c \
+    --arg mode "$BACKUP_MODE" \
     --arg completed_at "$backup_timestamp" \
     --arg database_dump "$database_identity" \
     --arg database_sha256 "$database_checksum" \
@@ -408,7 +475,7 @@ backup_once() {
     --argjson general_files_object_count "$destination_object_count" \
     --argjson general_files_bytes "$destination_object_bytes" \
     --arg audit_backup "$clickhouse_identity" \
-    --arg audit_sha256 "$clickhouse_checksum" \
+    --arg audit_sha256 "${clickhouse_checksum-}" \
     --arg app_image "$TWENTY_IMAGE_REF" \
     --arg app_release "$TWENTY_APP_RELEASE" \
     --arg backup_image "$BACKUP_IMAGE_REF" \
@@ -418,7 +485,8 @@ backup_once() {
     --argjson rpo_minutes "$RECOVERY_RPO_MINUTES" \
     --argjson rto_minutes "$RECOVERY_RTO_MINUTES" \
     '{
-      schema_version: 1,
+      schema_version: (if $mode == "core-only" then 2 else 1 end),
+      mode: (if $mode == "core-only" then "core-only" else null end),
       completed_at: $completed_at,
       database_dump: $database_dump,
       database_sha256: $database_sha256,
@@ -439,7 +507,11 @@ backup_once() {
         rpo_minutes: $rpo_minutes,
         rto_minutes: $rto_minutes
       }
-    }' > "$backup_tmpdir/manifest.json"
+    }
+    | if $mode == "core-only"
+      then del(.audit_backup, .audit_sha256)
+      else del(.mode)
+      end' > "$backup_tmpdir/manifest.json"
 
   rclone copyto --immutable "$backup_tmpdir/manifest.json" \
     "backup:${BACKUP_R2_BUCKET}/${manifest_identity}"
@@ -465,15 +537,13 @@ verify_restore_manifest() {
 
   jq -e \
     --arg timestamp "$restore_timestamp" \
-    '.schema_version == 1
-      and .completed_at == $timestamp
+    'def common:
+      .completed_at == $timestamp
       and .database_dump == ("postgres/" + $timestamp + "/twenty.dump")
       and .general_files_prefix == ("files/" + $timestamp)
       and .general_files_checksum_index == ("inventory/" + $timestamp + "/general-files.sha256")
-      and .audit_backup == ("clickhouse/" + $timestamp + "/twenty.zip")
       and (.database_sha256 | test("^[0-9a-f]{64}$"))
       and (.general_files_sha256 | test("^[0-9a-f]{64}$"))
-      and (.audit_sha256 | test("^[0-9a-f]{64}$"))
       and (.general_files_object_count | type == "number" and . >= 0 and floor == .)
       and (.general_files_bytes | type == "number" and . >= 0 and floor == .)
       and (.app_image | type == "string" and test("^[A-Za-z0-9._:/+-]+@sha256:[0-9a-f]{64}$"))
@@ -485,7 +555,47 @@ verify_restore_manifest() {
       and (.policy.rpo_minutes | type == "number" and . > 0 and floor == .)
       and (.policy.rto_minutes | type == "number" and . > 0 and floor == .)
       and (.policy | .cadence_seconds <= (.rpo_minutes * 60))
-      and (.policy | .retention_days <= .deletion_propagation_days)' \
+      and (.policy | .retention_days <= .deletion_propagation_days);
+    common and (
+      (
+        .schema_version == 1
+        and (.mode == null)
+        and .audit_backup == ("clickhouse/" + $timestamp + "/twenty.zip")
+        and (.audit_sha256 | test("^[0-9a-f]{64}$"))
+      )
+      or
+      (
+        .schema_version == 2
+        and .mode == "core-only"
+        and .policy.retention_days == 30
+        and .policy.deletion_propagation_days == 30
+        and (.policy | keys | sort) == ([
+          "cadence_seconds",
+          "deletion_propagation_days",
+          "retention_days",
+          "rpo_minutes",
+          "rto_minutes"
+        ] | sort)
+        and (has("audit_backup") | not)
+        and (has("audit_sha256") | not)
+        and (keys | sort) == ([
+          "app_image",
+          "app_release",
+          "backup_image",
+          "completed_at",
+          "database_dump",
+          "database_sha256",
+          "general_files_bytes",
+          "general_files_checksum_index",
+          "general_files_object_count",
+          "general_files_prefix",
+          "general_files_sha256",
+          "mode",
+          "policy",
+          "schema_version"
+        ] | sort)
+      )
+    )' \
     "$restore_manifest" >/dev/null
 }
 
@@ -506,12 +616,10 @@ verify_core_restore() {
 
   : "${RESTORE_SECRETS_FILE:?RESTORE_SECRETS_FILE is required}"
   : "${RESTORE_PG_VERIFY_SQL_FILE:?RESTORE_PG_VERIFY_SQL_FILE is required}"
-  : "${RESTORE_CLICKHOUSE_VERIFY_SQL_FILE:?RESTORE_CLICKHOUSE_VERIFY_SQL_FILE is required}"
   : "${RESTORE_GENERAL_FILE_SPEC:?RESTORE_GENERAL_FILE_SPEC is required}"
 
   verify_root_secret_file "$RESTORE_SECRETS_FILE"
   verify_root_secret_file "$RESTORE_PG_VERIFY_SQL_FILE"
-  verify_root_secret_file "$RESTORE_CLICKHOUSE_VERIFY_SQL_FILE"
   verify_root_secret_file "$RESTORE_GENERAL_FILE_SPEC"
 
   set -a
@@ -520,10 +628,19 @@ verify_core_restore() {
   set +a
 
   : "${RESTORE_PG_DATABASE_URL:?RESTORE_PG_DATABASE_URL is required}"
-  : "${RESTORE_CLICKHOUSE_HOST:?RESTORE_CLICKHOUSE_HOST is required}"
-  : "${RESTORE_CLICKHOUSE_USER:?RESTORE_CLICKHOUSE_USER is required}"
-  : "${RESTORE_CLICKHOUSE_PASSWORD:?RESTORE_CLICKHOUSE_PASSWORD is required}"
-  : "${RESTORE_CLICKHOUSE_DATABASE:?RESTORE_CLICKHOUSE_DATABASE is required}"
+  if [ "$BACKUP_MODE" = 'core-only' ]; then
+    for prohibited_var in \
+      RESTORE_CLICKHOUSE_HOST \
+      RESTORE_CLICKHOUSE_USER \
+      RESTORE_CLICKHOUSE_PASSWORD \
+      RESTORE_CLICKHOUSE_DATABASE; do
+      eval "prohibited_value=\${$prohibited_var-}"
+      if [ -n "$prohibited_value" ]; then
+        echo "ClickHouse configuration is prohibited in core-only mode" >&2
+        return 1
+      fi
+    done
+  fi
 
   if [ "$RESTORE_PG_DATABASE_URL" = "$BACKUP_PG_DATABASE_URL" ]; then
     echo "Isolated PostgreSQL restore target must differ from the source" >&2
@@ -553,35 +670,55 @@ verify_core_restore() {
     echo "Isolated PostgreSQL restore target must be empty" >&2
     return 1
   fi
-  validate_identifier RESTORE_CLICKHOUSE_DATABASE "$RESTORE_CLICKHOUSE_DATABASE"
-  if [ "$RESTORE_CLICKHOUSE_USER" != 'twenty_restore' ]; then
-    echo "Isolated ClickHouse restore user must be twenty_restore" >&2
-    return 1
-  fi
-  if [ "$RESTORE_CLICKHOUSE_USER" = "$CLICKHOUSE_BACKUP_USER" ]; then
-    echo "ClickHouse backup and restore identities must differ" >&2
-    return 1
-  fi
-  if [ "$RESTORE_CLICKHOUSE_DATABASE" = "$CLICKHOUSE_BACKUP_DATABASE" ]; then
-    echo "Isolated ClickHouse restore target must differ from the source" >&2
-    return 1
-  fi
-  if [ "$RESTORE_CLICKHOUSE_DATABASE" != 'twenty_restore_validation' ]; then
-    echo "Isolated ClickHouse database must be twenty_restore_validation" >&2
-    return 1
-  fi
 
   backup_tmpdir=$(mktemp -d)
   manifest_identity="status/${restore_timestamp}.json"
   rclone copyto "backup:${BACKUP_R2_BUCKET}/${manifest_identity}" \
     "$backup_tmpdir/manifest.json"
   verify_restore_manifest "$backup_tmpdir/manifest.json" "$restore_timestamp"
+  restore_mode=$(
+    jq -er \
+      'if .schema_version == 1 then "clickhouse-inclusive" else .mode end' \
+      "$backup_tmpdir/manifest.json"
+  )
+  if [ "$restore_mode" != "$BACKUP_MODE" ]; then
+    echo "Restore manifest mode does not match BACKUP_MODE" >&2
+    return 1
+  fi
+
+  if [ "$restore_mode" = 'clickhouse-inclusive' ]; then
+    : "${RESTORE_CLICKHOUSE_VERIFY_SQL_FILE:?RESTORE_CLICKHOUSE_VERIFY_SQL_FILE is required}"
+    : "${RESTORE_CLICKHOUSE_HOST:?RESTORE_CLICKHOUSE_HOST is required}"
+    : "${RESTORE_CLICKHOUSE_USER:?RESTORE_CLICKHOUSE_USER is required}"
+    : "${RESTORE_CLICKHOUSE_PASSWORD:?RESTORE_CLICKHOUSE_PASSWORD is required}"
+    : "${RESTORE_CLICKHOUSE_DATABASE:?RESTORE_CLICKHOUSE_DATABASE is required}"
+    verify_root_secret_file "$RESTORE_CLICKHOUSE_VERIFY_SQL_FILE"
+    validate_identifier RESTORE_CLICKHOUSE_DATABASE "$RESTORE_CLICKHOUSE_DATABASE"
+    if [ "$RESTORE_CLICKHOUSE_USER" != 'twenty_restore' ]; then
+      echo "Isolated ClickHouse restore user must be twenty_restore" >&2
+      return 1
+    fi
+    if [ "$RESTORE_CLICKHOUSE_USER" = "$CLICKHOUSE_BACKUP_USER" ]; then
+      echo "ClickHouse backup and restore identities must differ" >&2
+      return 1
+    fi
+    if [ "$RESTORE_CLICKHOUSE_DATABASE" = "$CLICKHOUSE_BACKUP_DATABASE" ]; then
+      echo "Isolated ClickHouse restore target must differ from the source" >&2
+      return 1
+    fi
+    if [ "$RESTORE_CLICKHOUSE_DATABASE" != 'twenty_restore_validation' ]; then
+      echo "Isolated ClickHouse database must be twenty_restore_validation" >&2
+      return 1
+    fi
+  fi
 
   database_checksum=$(jq -er '.database_sha256' "$backup_tmpdir/manifest.json")
   general_files_checksum=$(jq -er '.general_files_sha256' "$backup_tmpdir/manifest.json")
   expected_object_count=$(jq -er '.general_files_object_count' "$backup_tmpdir/manifest.json")
   expected_object_bytes=$(jq -er '.general_files_bytes' "$backup_tmpdir/manifest.json")
-  clickhouse_checksum=$(jq -er '.audit_sha256' "$backup_tmpdir/manifest.json")
+  if [ "$restore_mode" = 'clickhouse-inclusive' ]; then
+    clickhouse_checksum=$(jq -er '.audit_sha256' "$backup_tmpdir/manifest.json")
+  fi
 
   rclone copyto \
     "backup:${BACKUP_R2_BUCKET}/postgres/${restore_timestamp}/twenty.dump" \
@@ -645,40 +782,46 @@ verify_core_restore() {
     "$representative_file_checksum" \
     "$backup_tmpdir/general-files/$representative_file_key"
 
-  clickhouse_backup_path="$CLICKHOUSE_BACKUP_STAGING_PATH/restore/${restore_timestamp}.zip"
-  mkdir -p "$CLICKHOUSE_BACKUP_STAGING_PATH/restore"
-  rclone copyto \
-    "backup:${BACKUP_R2_BUCKET}/clickhouse/${restore_timestamp}/twenty.zip" \
-    "$clickhouse_backup_path"
-  verify_sha256 "$clickhouse_checksum" "$clickhouse_backup_path"
+  if [ "$restore_mode" = 'clickhouse-inclusive' ]; then
+    clickhouse_backup_path="$CLICKHOUSE_BACKUP_STAGING_PATH/restore/${restore_timestamp}.zip"
+    mkdir -p "$CLICKHOUSE_BACKUP_STAGING_PATH/restore"
+    rclone copyto \
+      "backup:${BACKUP_R2_BUCKET}/clickhouse/${restore_timestamp}/twenty.zip" \
+      "$clickhouse_backup_path"
+    verify_sha256 "$clickhouse_checksum" "$clickhouse_backup_path"
 
-  restore_database_exists=$(
+    restore_database_exists=$(
+      CLICKHOUSE_PASSWORD="$RESTORE_CLICKHOUSE_PASSWORD" \
+        clickhouse client \
+          --host "$RESTORE_CLICKHOUSE_HOST" \
+          --user "$RESTORE_CLICKHOUSE_USER" \
+          --query "EXISTS DATABASE \`$RESTORE_CLICKHOUSE_DATABASE\`"
+    )
+    if [ "$restore_database_exists" != '0' ]; then
+      echo "Isolated ClickHouse restore target already exists" >&2
+      return 1
+    fi
+
     CLICKHOUSE_PASSWORD="$RESTORE_CLICKHOUSE_PASSWORD" \
       clickhouse client \
         --host "$RESTORE_CLICKHOUSE_HOST" \
         --user "$RESTORE_CLICKHOUSE_USER" \
-        --query "EXISTS DATABASE \`$RESTORE_CLICKHOUSE_DATABASE\`"
-  )
-  if [ "$restore_database_exists" != '0' ]; then
-    echo "Isolated ClickHouse restore target already exists" >&2
-    return 1
+        --allow_experimental_json_type 1 \
+        --query "RESTORE DATABASE \`$CLICKHOUSE_BACKUP_DATABASE\` AS \`$RESTORE_CLICKHOUSE_DATABASE\` FROM Disk('audit_backups', 'restore/${restore_timestamp}.zip')" \
+        >/dev/null
+    CLICKHOUSE_PASSWORD="$RESTORE_CLICKHOUSE_PASSWORD" \
+      clickhouse client \
+        --host "$RESTORE_CLICKHOUSE_HOST" \
+        --user "$RESTORE_CLICKHOUSE_USER" \
+        --multiquery < "$RESTORE_CLICKHOUSE_VERIFY_SQL_FILE" >/dev/null
   fi
 
-  CLICKHOUSE_PASSWORD="$RESTORE_CLICKHOUSE_PASSWORD" \
-    clickhouse client \
-      --host "$RESTORE_CLICKHOUSE_HOST" \
-      --user "$RESTORE_CLICKHOUSE_USER" \
-      --allow_experimental_json_type 1 \
-      --query "RESTORE DATABASE \`$CLICKHOUSE_BACKUP_DATABASE\` AS \`$RESTORE_CLICKHOUSE_DATABASE\` FROM Disk('audit_backups', 'restore/${restore_timestamp}.zip')" \
-      >/dev/null
-  CLICKHOUSE_PASSWORD="$RESTORE_CLICKHOUSE_PASSWORD" \
-    clickhouse client \
-      --host "$RESTORE_CLICKHOUSE_HOST" \
-      --user "$RESTORE_CLICKHOUSE_USER" \
-      --multiquery < "$RESTORE_CLICKHOUSE_VERIFY_SQL_FILE" >/dev/null
-
   cleanup_artifacts
-  echo "Core restore verification passed; isolated databases remain for approved review"
+  if [ "$restore_mode" = 'core-only' ]; then
+    echo "Core-only restore verification passed; isolated PostgreSQL remains for approved review"
+  else
+    echo "Core restore verification passed; isolated databases remain for approved review"
+  fi
 }
 
 case "${1-daemon}" in

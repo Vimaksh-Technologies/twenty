@@ -96,9 +96,12 @@ project ID. Never put the credential, its value, or a copied request in this doc
 
 ## Service topology and resources
 
-Twenty requires separate server and worker processes, PostgreSQL, Redis, and the
-ClickHouse audit store. Use Dokploy-managed services and an internal network; expose
-only the Twenty HTTP server through the exact Traefik route.
+The normal `docker-compose.yml` topology requires separate server and worker processes,
+PostgreSQL, Redis, and the ClickHouse audit store. The explicit fast-launch
+`docker-compose.core-only.yml` profile omits ClickHouse while
+`AUDIT_LOGS_ENABLED=false`; it does not relax or alter the normal topology. Use
+Dokploy-managed services and an internal network, and expose only the Twenty HTTP
+server through the exact Traefik route.
 
 | Workload | CPU ceiling | Memory ceiling | Notes |
 | --- | ---: | ---: | --- |
@@ -109,7 +112,7 @@ only the Twenty HTTP server through the exact Traefik route.
 | ClickHouse 24.8 | 0.5 CPU | 1.5 GiB | Persistent data and backup-staging volumes; ports 8123/9000 internal only |
 | ClickHouse migration | 0.25 CPU | 512 MiB | One-shot immutable Twenty image; migration URL only; must complete successfully |
 | ClickHouse retention | 0.25 CPU | 256 MiB | Operations profile only; delete-only ClickHouse plus metadata-only PostgreSQL; independently monitored |
-| Backup | 0.25 CPU | 256 MiB | Read-only PostgreSQL, R2 files, and ClickHouse audit backup must all pass before heartbeat |
+| Backup | 0.25 CPU | 256 MiB | Normal mode requires read-only PostgreSQL, complete general R2 files, and ClickHouse audit; explicit core-only mode requires PostgreSQL and complete general R2 files |
 
 ### Health checks, sequencing, and migrations
 
@@ -135,6 +138,17 @@ only the Twenty HTTP server through the exact Traefik route.
    do not proceed when the result reports a database that is behind, a failed upgrade,
    or any ambiguous/unparseable state. Preserve only a scrubbed status summary in the
    protected change record.
+
+For the audit-disabled fast launch, copy `core-only.env.example` into the protected
+Dokploy environment, replace every placeholder, retain
+`COMPOSE_PROFILES=core-only`, and validate
+`docker compose --env-file <protected-env> -f docker-compose.core-only.yml
+--profile core-only config`. This standalone profile starts only server, worker,
+PostgreSQL, Redis, and backup; server and worker receive
+`AUDIT_LOGS_ENABLED=false`, and backup receives `BACKUP_MODE=core-only`. It contains
+no ClickHouse service, dependency, volume, URL, user, or credential. The normal
+`docker-compose.yml` remains the ClickHouse-inclusive deployment and explicitly passes
+`BACKUP_MODE=clickhouse-inclusive` with `AUDIT_LOGS_ENABLED=true`.
 
 Read-only host observations: the shared host has 4 logical CPUs, 15 GiB RAM with about
 4.9 GiB available, 4 GiB swap with about 1.4 GiB in use, and about 56 GiB free on the
@@ -232,6 +246,9 @@ while creating or operating Twenty.
   that the resolved regular file is readable, owned by numeric UID/GID `0:0`, and mode
   exactly `0600`; failure exits without printing its metadata or contents. Record the
   non-secret pass/fail and second-administrator witness in the protected change record.
+  In core-only mode this file contains only primary-R2 read and backup-R2 write
+  credentials; any ClickHouse URL, host, user, database, or credential fails preflight.
+  The normal ClickHouse-inclusive mode retains its existing ClickHouse backup settings.
 - Keep two authorized recovery administrators able to retrieve the recovery material
   through the approved secret manager. Administration is not their daily role. Test
   the second administrator's access and rotation path without revealing a value.
@@ -513,10 +530,15 @@ read unrelated tables or write. Record only role names, query classes, and pass/
 ## Backup policy, manifest, and failure contract
 
 The deployment must supply every input below from the approved CRM Operating Policy.
-There are no silent cadence or recovery defaults.
+`clickhouse-inclusive` remains the default backup mode. `core-only` is accepted only
+when explicitly selected with `AUDIT_LOGS_ENABLED=false`; it rejects any ClickHouse
+connection or credential and fixes both retention values at 30 days. There are no
+silent cadence or recovery defaults.
 
 | Variable | Required contract |
 | --- | --- |
+| `BACKUP_MODE` | Omit or set `clickhouse-inclusive` for the existing full path; set exact `core-only` only for the audit-disabled profile |
+| `AUDIT_LOGS_ENABLED` | Exact `true` for ClickHouse-inclusive mode; exact `false` for core-only mode |
 | `TWENTY_BACKUP_IMAGE_REF` | Published backup image pinned by `@sha256`; compose and the manifest use the same identity |
 | `BACKUP_PG_DATABASE_URL` | Required `twenty_backup` URL; distinct read-only identity, never the application URL |
 | `BACKUP_PG_DATABASE_USER` | Exact expected backup role name checked against the connected PostgreSQL identity |
@@ -524,38 +546,34 @@ There are no silent cadence or recovery defaults.
 | `TWENTY_IMAGE_REF` | Exact immutable application image deployed to server and worker |
 | `TWENTY_APP_RELEASE` | Approved Release A/B identifier containing no customer data |
 | `BACKUP_INTERVAL_SECONDS` | Positive cadence; cannot exceed `RECOVERY_RPO_MINUTES × 60` |
-| `BACKUP_RETENTION_DAYS` | Positive protected retention; cannot exceed the approved maximum deletion-propagation days |
-| `DELETION_PROPAGATION_DAYS` | Positive maximum time for deleted CRM content to age out of retained backups |
+| `BACKUP_RETENTION_DAYS` | Positive protected retention; exact `30` in core-only mode; otherwise cannot exceed deletion propagation |
+| `DELETION_PROPAGATION_DAYS` | Positive maximum time for deleted CRM content to age out; exact `30` in core-only mode |
 | `RECOVERY_RPO_MINUTES` | Approved maximum recoverable-data gap |
 | `RECOVERY_RTO_MINUTES` | Approved maximum time to restore and verify core service |
 | `BACKUP_HEALTHCHECK_URL` | Secret success route called only after every core verification and manifest upload passes |
 | `BACKUP_FAILURE_HEALTHCHECK_URL` | Separate secret failure route called on any armed backup failure |
 
-One run uses a single UTC timestamp and must complete in this order:
-
-1. create the PostgreSQL custom-format dump and SHA-256;
-2. count and total the primary general-file bucket, download-hash every object into a
-   canonical checksum index, and hash that index;
-3. create the native ClickHouse audit backup and SHA-256;
-4. immutably upload and download-verify the PostgreSQL artifact;
-5. immutably copy general files, download-compare source/destination, compare
-   object-count and byte totals, upload and download-verify the checksum index;
-6. immutably upload and download-verify the ClickHouse artifact;
-7. create and immutably upload/download-compare the scrubbed manifest; and
-8. send the success heartbeat.
+One run uses a single UTC timestamp. Both modes create the PostgreSQL custom-format
+dump and SHA-256, count and total the complete primary general-file bucket, build and
+hash its canonical downloaded checksum index, immutably upload every artifact, download
+and verify each artifact, immutably upload/download-compare the scrubbed manifest, and
+only then send success. ClickHouse-inclusive mode retains its native ClickHouse backup,
+checksum, immutable upload, download verification, and schema-1 manifest fields.
+Core-only mode performs no ClickHouse command or storage operation and writes a strict
+schema-2 manifest with `mode: core-only`, PostgreSQL and general-file identities and
+checksums, general-file count/bytes, immutable application and backup image identities,
+application release, timestamp, and the fixed 30-day retention/deletion policy.
 
 Once a valid HTTPS failure-heartbeat endpoint is configured, any other failed
-executable preflight, dump, source inventory, native audit backup, copy, count,
-checksum, upload, download verification, or manifest operation exits nonzero, sends
-failure, and never sends success. An absent or invalid failure endpoint cannot report
-to itself, so the independent stale/missing-success alert remains mandatory. The
-manifest contains the schema version, UTC completion time,
-PostgreSQL/general-file/checksum-index/ClickHouse identities and SHA-256 values,
-general-file object count and bytes, immutable application and backup image identities,
-application release, and the five policy inputs. It never contains credentials,
-endpoints, healthcheck URLs, object keys, actor/customer identifiers, or sampled CRM
-values. The encrypted checksum index can contain object keys and is therefore protected
-as business data rather than copied into tickets or audit evidence.
+executable preflight, dump, source inventory, native audit backup when applicable,
+copy, collision-safe immutable upload, count, checksum, download verification,
+manifest creation, manifest upload, or manifest comparison exits nonzero, sends the
+separate failure heartbeat, and never sends success. An absent or invalid failure
+endpoint cannot report to itself, so the independent stale/missing-success alert
+remains mandatory. Neither manifest mode contains credentials, endpoints, healthcheck
+URLs, object keys, actor/customer identifiers, sampled CRM values, or PII. The
+encrypted checksum index can contain object keys and is therefore protected as
+business data rather than copied into tickets or audit evidence.
 
 Retention is enforced by the externally protected bucket lifecycle/Object Lock policy,
 not by delete permission on the backup identity. A successful script run is not proof
@@ -565,40 +583,45 @@ that lifecycle, deletion propagation, encryption, or immutability is configured.
 
 The executable `verify-core-restore <UTC timestamp>` command restores only to explicitly
 isolated targets. It requires `ALLOW_ISOLATED_RESTORE=YES`, rejects the backup-source
-PostgreSQL URL, verifies that PostgreSQL reports the fixed
-`twenty_restore_validation` database with no non-system relations, rejects the source
-ClickHouse database, requires `RESTORE_CLICKHOUSE_USER=twenty_restore`, and requires
-the same fixed ClickHouse target name. It never drops or overwrites a database and
-leaves restored databases in place for two-administrator review and separately
-approved cleanup.
+PostgreSQL URL, and verifies that PostgreSQL reports the fixed
+`twenty_restore_validation` database with no non-system relations. A schema-2
+core-only manifest restores and verifies PostgreSQL plus the complete general-file
+snapshot without accepting ClickHouse inputs. A schema-1 ClickHouse-inclusive manifest
+retains the existing isolated ClickHouse target, identity, artifact, and verification
+requirements. The command rejects a manifest whose mode differs from `BACKUP_MODE`,
+never drops or overwrites a database, and leaves restored databases in place for
+two-administrator review and separately approved cleanup.
 
-Prepare five root-owned `0600` inputs in approved encrypted temporary storage without
+Prepare these root-owned `0600` inputs in approved encrypted temporary storage without
 printing them:
 
-1. the normal backup secret file, containing only R2 and `twenty_backup` ClickHouse
-   credentials;
-2. a separate restore secret file containing the isolated PostgreSQL URL and the
-   separately held `twenty_restore` identity/password plus the fixed target;
+1. the normal backup secret file; core-only contains only primary/backup R2
+   credentials, while ClickHouse-inclusive also contains `twenty_backup` settings;
+2. a separate restore secret file containing the isolated PostgreSQL URL;
 3. a PostgreSQL verification SQL file whose assertions fail unless sampled core
    relations, object metadata, role/permission assignments, and notification-only
-   workflow definitions match the protected expected report;
-4. a ClickHouse verification SQL file for expected audit tables, bounded row counts and
-   classifications; and
-5. a two-line general-file spec containing one non-sensitive representative relative
+   workflow definitions match the protected expected report; and
+4. a two-line general-file spec containing one non-sensitive representative relative
    object key and its approved SHA-256.
 
-Run the exact published backup image as a one-off job on an isolated network with the
-backup staging volume, the five protected files mounted read-only, and command
-`verify-core-restore <UTC timestamp>`. The harness:
+ClickHouse-inclusive restore additionally requires the separately held
+`twenty_restore` identity/password and fixed target in the restore secret plus a
+ClickHouse verification SQL file. Core-only restore rejects those settings.
 
-- validates the scrubbed manifest shape and exact timestamp-bound identities;
+Run the exact published backup image as a one-off job on an isolated network with the
+protected files mounted read-only and command
+`verify-core-restore <UTC timestamp>`. Mount ClickHouse backup staging only for the
+ClickHouse-inclusive mode. The harness:
+
+- validates the scrubbed manifest shape, mode, and exact timestamp-bound identities;
 - downloads and checks the PostgreSQL dump before an atomic, single-transaction
   `pg_restore`, then runs the assertion-only PostgreSQL SQL file with stop-on-error;
 - restores the complete general-file snapshot locally, compares its canonical checksum
   index/count/bytes, and verifies the representative upload SHA-256;
-- downloads/checks the native audit artifact, restores it under the new validation
-  database, and runs the assertion-only ClickHouse SQL; and
-- emits only a generic pass line. Query output is suppressed.
+- for ClickHouse-inclusive manifests only, downloads/checks the native audit artifact,
+  restores it under the new validation database, and runs the assertion-only
+  ClickHouse SQL; and
+- emits only a generic mode-specific pass line. Query output is suppressed.
 
 The first recovery administrator performs the run; the second independently retrieves
 the approved inputs, reviews manifest/image/policy identity, reruns the bounded sample,
@@ -607,11 +630,12 @@ manifest identity, image digests, policy version, expected/observed sample count
 duration versus RTO, backup age versus RPO, evidence location, both administrators, and
 explicit resume decision without recording data or secrets.
 
-This is the U10 **core** restore: PostgreSQL, Twenty general R2 files/uploads, and
-ClickHouse audit. Gmail message-attachment retrieval, authorization, mirror deletion,
-backup, and restore remain U8/U13 acceptance and are neither blocked on nor claimed by
-this command. Never use this procedure against live targets, and never use Docker volume
-removal, database reset, or R2 deletion as a recovery shortcut.
+This restore always proves PostgreSQL and Twenty general R2 files/uploads; the
+ClickHouse-inclusive mode also proves ClickHouse audit. Gmail message-attachment
+retrieval, authorization, mirror deletion, backup, and restore remain U8/U13 acceptance
+and are neither blocked on nor claimed by this command. Never use this procedure
+against live targets, and never use Docker volume removal, database reset, or R2
+deletion as a recovery shortcut.
 
 ## Monitoring
 
@@ -689,13 +713,15 @@ URLs, object keys, customer data, or secret environment values.
    closed for behind, failed, or ambiguous status; resolve the state before deployment.
 5. Deploy the pinned compose through Dokploy, keeping documented resource limits
    unchanged unless a separately approved capacity change exists.
-6. Verify dependency health → one-shot ClickHouse migration with the migration URL →
-   server PostgreSQL migration/health → worker startup. Compose must keep server/worker
-   stopped if `clickhouse-migrate` fails.
-7. Run the operations-profile retention job and prove its bounded credentials,
-   three-attempt retry, failure/success heartbeats, and independent stale monitor.
-8. Watch migrations, server/worker/ClickHouse health, audit ingestion/denial, retention,
-   HTTP/TLS, backup, and error rates.
+6. Verify PostgreSQL/Redis health → server PostgreSQL migration/health → worker startup.
+   In ClickHouse-inclusive mode, insert ClickHouse health and the one-shot migration
+   before server startup; keep server/worker stopped if that migration fails.
+7. In ClickHouse-inclusive mode, run the operations-profile retention job and prove
+   its bounded credentials, retries, heartbeats, and stale monitor. Core-only mode has
+   no ClickHouse retention job.
+8. Watch the enabled services: always migrations, server/worker, PostgreSQL, Redis,
+   HTTP/TLS, general/backup R2, backup, and error rates; add ClickHouse audit,
+   ingestion, denial, retention, and health only in ClickHouse-inclusive mode.
 9. Run the deployment verification checklist. If rollback criteria are met, stop the
    rollout, preserve logs, and use the approved restore/rollback plan rather than
    improvising data changes.
@@ -722,32 +748,31 @@ URLs, object keys, customer data, or secret environment values.
 - [ ] Authorized read-only Cloudflare zone review confirms exact/wildcard DNS ownership and no conflict.
 - [ ] Dokploy exact route for `twenty.paryatech.in` is present and no duplicate route exists.
 - [ ] HTTPS serves the intended Twenty deployment with a valid hostname certificate.
-- [ ] Twenty, backup, PostgreSQL, Redis, and ClickHouse images are pinned to immutable digests; application release, source release, rollback digest, and platform manifests are recorded.
-- [ ] Server, worker, PostgreSQL 16, Redis 7.4, ClickHouse 24.8, one-shot migration, operations-profile retention, and backup use the documented ceilings; only the server is publicly routed.
-- [ ] PostgreSQL/Redis/ClickHouse health checks pass; `clickhouse-migrate` then completes with the migration URL before server migration/health and worker startup.
+- [ ] Twenty, backup, PostgreSQL, and Redis images are pinned to immutable digests; ClickHouse is also pinned only for ClickHouse-inclusive mode; application release, source release, rollback digest, and platform manifests are recorded.
+- [ ] Enabled server, worker, PostgreSQL 16, Redis 7.4, backup, and conditional ClickHouse services use the documented ceilings; only the server is publicly routed.
+- [ ] PostgreSQL/Redis health checks pass. Core-only starts server migration/health then worker; ClickHouse-inclusive additionally requires ClickHouse health and successful `clickhouse-migrate` first.
 - [ ] `yarn command:prod upgrade:status` was parsed in the target server-release context and is neither behind, failed, nor ambiguous.
-- [ ] PostgreSQL and ClickHouse persistence and private service connectivity are verified; ClickHouse ports are not published.
+- [ ] PostgreSQL persistence and private connectivity are verified; ClickHouse-inclusive mode also verifies ClickHouse persistence and unexposed ports.
 - [ ] Primary and backup R2 buckets are distinct, private, least-privilege, and usable without disclosing credentials.
 - [ ] Google/SMTP configuration uses only documented variables; `MESSAGING_INITIAL_SYNC_LOOKBACK_DAYS=90` is present on server/worker; secrets are absent from Git/logs/screenshots/exports/change records; no stale Server Admin override exists.
 - [ ] Both exact Google callbacks and approved seven-scope consent pass in staging; revoke requires fresh consent and rotation invalidates the retired credential.
 - [ ] Release A keeps Gmail and Calendar disabled; Release B alone may connect `team@paryatech.in` after U8 mailbox/file authorization, cleanup, backup, and restore acceptance.
 - [ ] SMTP remains `LOGGER` until the live U10 gate; activation proves authenticated TLS, local failure, provider acceptance, bounce/reply reconciliation, redacted evidence, and no campaign/contact-count interpretation.
 - [ ] `LOGIC_FUNCTION_TYPE` and `CODE_INTERPRETER_TYPE` remain `DISABLED` on server and worker.
-- [ ] Real Enterprise `AUDIT_LOGS` entitlement is valid on the pinned release; absent/expired entitlement blocks high-risk/restricted rollout without a fabricated override.
-- [ ] `AUDIT_LOGS_ENABLED=true`; server/worker have exactly the distinct ingest/read URLs and no destructive role; migration and retention each have a separate one-shot URL; legacy `CLICKHOUSE_URL` is absent; server/worker never start around a failed migration.
-- [ ] Ingestion INSERT succeeds while SELECT/ALTER/DELETE fails; reviewer SELECT succeeds while INSERT/ALTER/DELETE fails; migration is schema-scoped; retention can only `ALTER DELETE`; backup succeeds but cannot restore/mutate; restore succeeds only into `twenty_restore_validation` and cannot alter/delete.
-- [ ] PostgreSQL, ClickHouse, `server-local-data`, Docker state, ClickHouse staging, both R2 buckets, retained exports, and backups have provider/device encryption and recovery-key evidence.
+- [ ] Core-only records ClickHouse/AUDIT_LOGS as explicitly deferred, sets `AUDIT_LOGS_ENABLED=false`, admits no ClickHouse URL/credential, and keeps high-risk/broad restricted rollout closed. ClickHouse-inclusive instead requires the real entitlement and all existing ingest/read/migration/retention/backup/restore denial probes.
+- [ ] The selected compose contract is exact: standalone `docker-compose.core-only.yml` with profile `core-only`, or normal `docker-compose.yml` with `BACKUP_MODE=clickhouse-inclusive`; never mix their services, manifests, or secrets.
+- [ ] PostgreSQL, `server-local-data`, Docker state, both R2 buckets, retained exports, and backups have provider/device encryption and recovery-key evidence; ClickHouse data/staging is included only when enabled.
 - [ ] `twenty-backup.env` is verified as root:root `0600` without output; both recovery administrators prove protected independent access.
-- [ ] `PG_DATABASE_URL` is absent from backup/retention; `twenty_backup` passes `pg_dump` but cannot write; `twenty_retention` reads only approved workspace retention columns; both identities differ from the application role.
-- [ ] Approved cadence/retention/deletion-propagation/RPO/RTO values pass the script constraints and the external protected lifecycle.
-- [ ] PostgreSQL, general R2 file copy/checksum-index/count, ClickHouse native archive, every immutable upload/download verification, and scrubbed manifest complete before success heartbeat; each forced preflight/store/upload/manifest failure sends failure and suppresses success.
-- [ ] The manifest contains exact artifact identities/checksums/counts/bytes/application and backup image digests/release/policy inputs and no secret, endpoint, PII, CRM value, or object key.
-- [ ] One externally immutable encrypted backup passes the isolated U10 core restore: PostgreSQL relations/metadata/roles/workflows, complete general-file checksum inventory plus representative upload, and ClickHouse audit table/count/classification checks.
+- [ ] `PG_DATABASE_URL` is absent from backup; `twenty_backup` passes `pg_dump` but cannot write and differs from the application role. ClickHouse-inclusive mode separately proves its retention identity.
+- [ ] Core-only uses exact backup/deletion retention `30/30`; cadence/RPO/RTO and the external encrypted immutable lifecycle pass. ClickHouse-inclusive retains its approved positive retention inputs.
+- [ ] PostgreSQL, complete general R2 copy/checksum-index/count, every immutable upload/download verification, and scrubbed manifest complete before success; ClickHouse-inclusive also requires the native audit archive. Each forced preflight/store/upload/manifest/tamper failure sends failure and suppresses success.
+- [ ] The manifest records exact mode/artifact identities/checksums/counts/bytes/application and backup image digests/release/policy inputs and no secret, endpoint, PII, CRM value, or object key.
+- [ ] One externally immutable encrypted backup passes isolated restore for PostgreSQL relations/metadata/roles/workflows and complete general-file checksum inventory plus representative upload; ClickHouse-inclusive also passes audit table/count/classification checks.
 - [ ] Gmail attachment backup/restore remains separately closed until U8/U13; U10 evidence does not claim it.
 - [ ] Temporary Traefik Basic Auth was used for bootstrap (or the explicitly authorized SSH-tunnel fallback); its credential was delivered outside Git and logs.
 - [ ] Before the access gate was explicitly removed or relaxed, a non-secret test proved that unauthenticated users could not create a workspace.
 - [ ] First administrator bootstrap, login, record workflow, upload workflow, and worker job all succeed.
-- [ ] Every TLS/server/worker/PostgreSQL/Redis/ClickHouse/R2/disk/swap/capacity/OAuth/SMTP/backup-age/failure monitor has permanent primary/secondary owners, destination, acknowledgement window, escalation, and Shared Exception resume evidence.
+- [ ] Every enabled TLS/server/worker/PostgreSQL/Redis/R2/disk/swap/capacity/OAuth/SMTP/backup-age/failure monitor has permanent owners, destination, acknowledgement, escalation, and Shared Exception resume evidence; ClickHouse monitors are required only when ClickHouse is enabled.
 - [ ] Change record includes the deployed digest, migration result, verification result, and rollback decision.
 
 ## U13 integrated Release A and Release B gate
