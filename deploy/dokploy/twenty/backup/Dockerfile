@@ -1,6 +1,13 @@
-FROM postgres:16.9-alpine@sha256:7c688148e5e156d0e86df7ba8ae5a05a2386aaec1e2ad8e6d11bdf10504b1fb7
+FROM clickhouse/clickhouse-server:24.8.14.39-alpine@sha256:b002e56ed5c16e224c312527f6fcba7e77216fec5d7a88a7828f59efc614feb5
 
-RUN apk add --no-cache ca-certificates curl rclone
+USER root
+
+RUN apk add --no-cache \
+      ca-certificates=20260413-r0 \
+      curl=8.14.1-r2 \
+      jq=1.7.1-r0 \
+      postgresql16-client=16.15-r0 \
+      rclone=1.68.2-r5
 
 COPY entrypoint.sh /usr/local/bin/twenty-backup
 

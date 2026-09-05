@@ -1,0 +1,19 @@
+<clickhouse>
+  <listen_host>0.0.0.0</listen_host>
+  <http_port>8123</http_port>
+  <tcp_port>9000</tcp_port>
+
+  <storage_configuration>
+    <disks>
+      <audit_backups>
+        <type>local</type>
+        <path>/var/lib/clickhouse/backups/</path>
+      </audit_backups>
+    </disks>
+  </storage_configuration>
+
+  <backups>
+    <allowed_disk>audit_backups</allowed_disk>
+    <allowed_path>audit/</allowed_path>
+  </backups>
+</clickhouse>

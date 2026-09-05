@@ -1,8 +1,9 @@
 # Paryatech CRM workspace runbook
 
-**Status:** U1–U4 operating contract. This document defines reproducible metadata,
-identity, permission, native operating-surface, and reviewed-import procedures; it
-does not authorize or record a live production change.
+**Status:** U1–U4 base operating contract with U7, U9, and U10 addenda. This
+document defines reproducible metadata, identity, permission, operating-surface,
+reviewed-import, mailbox, audit, and core-recovery procedures; it does not authorize
+or record a live production change.
 
 ## Scope and safety boundary
 
@@ -1515,3 +1516,50 @@ stop condition, and emergency-halt/resume steps above. `git diff --check` must a
 pass for this file, and the staged diff must contain only this runbook. This
 documentation change does not claim that any staging or live provider smoke has run or
 passed.
+
+## U9 Enterprise audit operating addendum
+
+The deployment authority for U9 is
+`docs/operations/twenty-dokploy-runbook.md`. Audit enablement is fail-closed: the exact
+pinned application release must have a real `AUDIT_LOGS` Enterprise entitlement;
+server and worker require distinct ingest, read, and maintenance URLs; the legacy
+single ClickHouse URL is prohibited; and a failed one-shot ClickHouse migration blocks
+both application processes. The private, persistent, digest-pinned ClickHouse service
+uses separate insert-only, read-only, bounded maintenance, backup-only, and loopback
+break-glass identities. Retention is migration-owned, and audit payloads must continue
+to exclude secrets, raw payloads, business values, attachment data, and content
+snippets.
+
+**U9 live evidence: BLOCKED.** Repository configuration and isolated role probes are
+not proof of a deployed entitlement, private network, encrypted persistent storage,
+retention execution, monitor ownership, or reviewer access. Until those checks are
+performed on the approved environment and retained outside Git, high-risk and
+restricted rollout remains blocked.
+
+## U10 core recovery operating addendum
+
+The U10 core recovery boundary is PostgreSQL, the complete general-file R2 snapshot,
+and the ClickHouse audit database. The backup service starts after PostgreSQL and the
+ClickHouse migration, independently of application-server health. A run succeeds only
+after all three stores, immutable uploads, download verification, canonical
+checksums/counts, and the scrubbed timestamp-bound manifest complete. Once a valid
+HTTPS failure-heartbeat endpoint exists, every other executable preflight or backup
+stage failure routes failure and suppresses success; an absent or invalid endpoint
+relies on the independent missing/late-success monitor. Cadence must fit RPO, retention
+cannot exceed deletion propagation, and permanent missing/late-success monitoring
+remains mandatory.
+
+Restore requires root-owned `0600` inputs, a fixed empty
+`twenty_restore_validation` PostgreSQL database, the same fixed isolated ClickHouse
+database name, checksum and manifest-policy validation, atomic PostgreSQL restore,
+full general-file inventory verification, bounded audit assertions, and independent
+review by two recovery administrators. It never authorizes destructive cleanup.
+Gmail attachment retrieval, authorization, mirror deletion, backup, and restore remain
+U8/U13 work and are not claimed by U10.
+
+**U10 live evidence: BLOCKED.** No live R2 copy/Object Lock/lifecycle/encryption proof,
+encrypted-volume proof, permanent heartbeat monitor, published backup-image digest,
+approved Dokploy execution, or second-administrator isolated restore has been observed
+in this repository review. Do not claim RTO/RPO, immutability, recoverability, or
+production readiness until those external gates pass and their scrubbed evidence is
+retained outside Git.
