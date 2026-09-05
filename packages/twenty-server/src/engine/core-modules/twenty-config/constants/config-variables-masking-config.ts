@@ -13,6 +13,10 @@ type MaskingConfigType = {
   APP_SECRET: LastNCharsConfig;
   PG_DATABASE_URL: HidePasswordConfig;
   REDIS_URL: HidePasswordConfig;
+  CLICKHOUSE_URL: HidePasswordConfig;
+  CLICKHOUSE_INGEST_URL: HidePasswordConfig;
+  CLICKHOUSE_READ_URL: HidePasswordConfig;
+  CLICKHOUSE_MAINTENANCE_URL: HidePasswordConfig;
 };
 
 export const CONFIG_VARIABLES_MASKING_CONFIG: MaskingConfigType = {
@@ -24,6 +28,18 @@ export const CONFIG_VARIABLES_MASKING_CONFIG: MaskingConfigType = {
     strategy: ConfigVariablesMaskingStrategies.HIDE_PASSWORD,
   },
   REDIS_URL: {
+    strategy: ConfigVariablesMaskingStrategies.HIDE_PASSWORD,
+  },
+  CLICKHOUSE_URL: {
+    strategy: ConfigVariablesMaskingStrategies.HIDE_PASSWORD,
+  },
+  CLICKHOUSE_INGEST_URL: {
+    strategy: ConfigVariablesMaskingStrategies.HIDE_PASSWORD,
+  },
+  CLICKHOUSE_READ_URL: {
+    strategy: ConfigVariablesMaskingStrategies.HIDE_PASSWORD,
+  },
+  CLICKHOUSE_MAINTENANCE_URL: {
     strategy: ConfigVariablesMaskingStrategies.HIDE_PASSWORD,
   },
 } as const;

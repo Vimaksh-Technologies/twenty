@@ -295,7 +295,13 @@ export class ClientConfigService {
       isBookCallOnboardingStepEnabled,
       isCompanyEnrichmentEnabled,
       isCloudflareIntegrationEnabled: this.isCloudflareIntegrationEnabled(),
-      isClickHouseConfigured: !!this.twentyConfigService.get('CLICKHOUSE_URL'),
+      isClickHouseConfigured: Boolean(
+        this.twentyConfigService.get(
+          this.twentyConfigService.get('AUDIT_LOGS_ENABLED')
+            ? 'CLICKHOUSE_READ_URL'
+            : 'CLICKHOUSE_URL',
+        ),
+      ),
       isWorkspaceSchemaDDLLocked: this.twentyConfigService.get(
         'WORKSPACE_SCHEMA_DDL_LOCKED',
       ),

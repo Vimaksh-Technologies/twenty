@@ -96,8 +96,14 @@ export class EventLogsService {
     params.limit = limit + 1;
 
     const [records, countResult] = await Promise.all([
-      this.clickHouseService.select<Record<string, unknown>>(query, params),
-      this.clickHouseService.select<{ totalCount: number }>(countQuery, params),
+      this.clickHouseService.selectOrThrow<Record<string, unknown>>(
+        query,
+        params,
+      ),
+      this.clickHouseService.selectOrThrow<{ totalCount: number }>(
+        countQuery,
+        params,
+      ),
     ]);
 
     const totalCount = countResult[0]?.totalCount ?? 0;
@@ -128,9 +134,9 @@ export class EventLogsService {
     workspaceId: string,
     table: EventLogTable,
   ): Promise<void> {
-    if (!this.clickHouseService.getMainClient()) {
+    if (!this.clickHouseService.isAuditLogsConfigured()) {
       throw new EventLogsException(
-        'Audit logs require ClickHouse to be configured. Please set the CLICKHOUSE_URL environment variable.',
+        'Audit logs require hardened ClickHouse role configuration.',
         EventLogsExceptionCode.CLICKHOUSE_NOT_CONFIGURED,
       );
     }

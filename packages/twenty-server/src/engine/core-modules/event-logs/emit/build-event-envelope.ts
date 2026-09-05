@@ -11,6 +11,7 @@ import {
   makeTrackEvent,
 } from 'src/engine/core-modules/event-logs/emit/analytics.utils';
 import { type PageviewProperties } from 'src/engine/core-modules/event-logs/emit/events/pageview/pageview';
+import { redactEventLogSecrets } from 'src/engine/core-modules/event-logs/utils/redact-event-log-secrets';
 
 export const computeEventContextFields = (
   context?: EventContextFields,
@@ -25,7 +26,10 @@ export const buildWorkspaceEventEnvelope = <T extends TrackEventName>(
   properties: TrackEventProperties<T>,
 ): WorkspaceEventEnvelope => ({
   table: 'workspaceEvent',
-  row: { ...contextFields, ...makeTrackEvent(event, properties) },
+  row: {
+    ...contextFields,
+    ...makeTrackEvent(event, redactEventLogSecrets(properties)),
+  },
 });
 
 export const buildObjectEventEnvelope = <T extends TrackEventName>(
@@ -46,7 +50,9 @@ export const buildObjectEventEnvelope = <T extends TrackEventName>(
       ...contextFields,
       ...makeTrackEvent(
         event,
-        restProperties as unknown as TrackEventProperties<T>,
+        redactEventLogSecrets(
+          restProperties as unknown as TrackEventProperties<T>,
+        ),
       ),
       recordId,
       objectMetadataId,
@@ -61,5 +67,8 @@ export const buildPageviewEnvelope = (
   properties: Partial<PageviewProperties>,
 ): WorkspaceEventEnvelope => ({
   table: 'pageview',
-  row: { ...contextFields, ...makePageview(name, properties) },
+  row: {
+    ...contextFields,
+    ...makePageview(name, redactEventLogSecrets(properties)),
+  },
 });

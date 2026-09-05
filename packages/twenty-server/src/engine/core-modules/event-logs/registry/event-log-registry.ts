@@ -9,6 +9,7 @@ import {
   type ObjectEventRow,
   type PageviewRow,
   type UsageEventRow,
+  type WorkspaceEventTable,
 } from 'src/engine/core-modules/event-logs/types/workspace-event-envelope.type';
 
 type StoredRow<TRow> = Partial<Omit<TRow, 'type' | 'version'>> & {
@@ -18,7 +19,7 @@ type StoredRow<TRow> = Partial<Omit<TRow, 'type' | 'version'>> & {
 type StoredEventRow = StoredRow<ObjectEventRow & Pick<PageviewRow, 'name'>>;
 
 export type EventLogTypeDefinition = {
-  clickHouseTable: string;
+  clickHouseTable: WorkspaceEventTable;
   // null = free on every plan; otherwise the required billing entitlement
   requiresEntitlement: BillingEntitlementKey | null;
   eventFieldName: string;
@@ -105,5 +106,6 @@ export const EVENT_LOG_TYPES: Record<EventLogTable, EventLogTypeDefinition> = {
   },
 };
 
-export const getClickHouseTableName = (table: EventLogTable): string =>
-  EVENT_LOG_TYPES[table].clickHouseTable;
+export const getClickHouseTableName = (
+  table: EventLogTable,
+): WorkspaceEventTable => EVENT_LOG_TYPES[table].clickHouseTable;

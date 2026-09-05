@@ -873,7 +873,18 @@ export class ConfigVariables {
 
   @ConfigVariablesMetadata({
     group: ConfigVariablesGroup.ANALYTICS_CONFIG,
-    description: 'Clickhouse host for analytics',
+    description:
+      'Enable hardened audit logging with separate ClickHouse ingestion, read, and maintenance identities',
+    type: ConfigVariableType.BOOLEAN,
+    isEnvOnly: true,
+  })
+  @IsOptional()
+  AUDIT_LOGS_ENABLED = false;
+
+  @ConfigVariablesMetadata({
+    group: ConfigVariablesGroup.ANALYTICS_CONFIG,
+    description:
+      'Legacy single ClickHouse URL for deployments without hardened audit logging',
     type: ConfigVariableType.STRING,
     isSensitive: true,
   })
@@ -882,8 +893,53 @@ export class ConfigVariables {
     require_tld: false,
     allow_underscores: true,
   })
-  @ValidateIf((env) => env.ANALYTICS_ENABLED === true)
   CLICKHOUSE_URL: string;
+
+  @ConfigVariablesMetadata({
+    group: ConfigVariablesGroup.ANALYTICS_CONFIG,
+    description: 'Write-only ClickHouse URL for event ingestion',
+    type: ConfigVariableType.STRING,
+    isSensitive: true,
+    isEnvOnly: true,
+  })
+  @IsUrl({
+    require_tld: false,
+    allow_underscores: true,
+  })
+  @IsDefined()
+  @ValidateIf((env) => env.AUDIT_LOGS_ENABLED === true)
+  CLICKHOUSE_INGEST_URL: string;
+
+  @ConfigVariablesMetadata({
+    group: ConfigVariablesGroup.ANALYTICS_CONFIG,
+    description: 'Read-only ClickHouse URL for audit and analytics queries',
+    type: ConfigVariableType.STRING,
+    isSensitive: true,
+    isEnvOnly: true,
+  })
+  @IsUrl({
+    require_tld: false,
+    allow_underscores: true,
+  })
+  @IsDefined()
+  @ValidateIf((env) => env.AUDIT_LOGS_ENABLED === true)
+  CLICKHOUSE_READ_URL: string;
+
+  @ConfigVariablesMetadata({
+    group: ConfigVariablesGroup.ANALYTICS_CONFIG,
+    description:
+      'Protected ClickHouse URL for retention and schema maintenance',
+    type: ConfigVariableType.STRING,
+    isSensitive: true,
+    isEnvOnly: true,
+  })
+  @IsUrl({
+    require_tld: false,
+    allow_underscores: true,
+  })
+  @IsDefined()
+  @ValidateIf((env) => env.AUDIT_LOGS_ENABLED === true)
+  CLICKHOUSE_MAINTENANCE_URL: string;
 
   @ConfigVariablesMetadata({
     group: ConfigVariablesGroup.LOGGING,
@@ -2219,6 +2275,7 @@ export class ConfigVariables {
     type: ConfigVariableType.NUMBER,
     isEnvOnly: true,
   })
+
   @CastToPositiveNumber()
   @IsOptional()
   SEARCH_ILIKE_FALLBACK_TIMEOUT_MS: number = 2000;
@@ -2275,8 +2332,46 @@ export class ConfigVariables {
   APP_REGISTRY_TOKEN: string;
 }
 
+const CLICKHOUSE_AUDIT_URL_KEYS = [
+  'CLICKHOUSE_INGEST_URL',
+  'CLICKHOUSE_READ_URL',
+  'CLICKHOUSE_MAINTENANCE_URL',
+] as const;
+
+export const getMissingClickHouseAuditUrlKeys = (
+  config: Pick<
+    ConfigVariables,
+    | 'AUDIT_LOGS_ENABLED'
+    | 'CLICKHOUSE_INGEST_URL'
+    | 'CLICKHOUSE_READ_URL'
+    | 'CLICKHOUSE_MAINTENANCE_URL'
+  >,
+): string[] => {
+  if (!config.AUDIT_LOGS_ENABLED) {
+    return [];
+  }
+
+  return CLICKHOUSE_AUDIT_URL_KEYS.filter((key) => {
+    const url = config[key];
+
+    return typeof url !== 'string' || url.length === 0;
+  });
+};
+
 export const validate = (config: Record<string, unknown>): ConfigVariables => {
   const validatedConfig = plainToClass(ConfigVariables, config);
+  const missingClickHouseAuditUrlKeys =
+    getMissingClickHouseAuditUrlKeys(validatedConfig);
+
+  if (missingClickHouseAuditUrlKeys.length > 0) {
+    Logger.error(
+      `Hardened audit logs require ${missingClickHouseAuditUrlKeys.join(', ')}`,
+    );
+    throw new ConfigVariableException(
+      'Config variables validation failed',
+      ConfigVariableExceptionCode.VALIDATION_FAILED,
+    );
+  }
 
   const validationErrors = validateSync(validatedConfig, {
     strictGroups: true,

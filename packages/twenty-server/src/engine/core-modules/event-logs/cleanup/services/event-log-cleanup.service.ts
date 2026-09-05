@@ -23,45 +23,41 @@ export class EventLogCleanupService {
     workspaceId,
     retentionDays,
   }: EventLogCleanupParams): Promise<void> {
-    if (!this.clickHouseService.getMainClient()) {
-      this.logger.debug(
-        'ClickHouse not configured, skipping event log cleanup',
-      );
-
-      return;
+    if (!this.clickHouseService.isClientConfigured('maintenance')) {
+      throw new Error('ClickHouse maintenance client is not configured');
     }
 
     const cutoffDate = new Date();
 
     cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+    const failedTableNames: string[] = [];
 
     for (const table of Object.values(EventLogTable)) {
       const tableName = getClickHouseTableName(table);
 
       try {
-        const success = await this.clickHouseService.executeCommand(
-          `ALTER TABLE ${tableName} DELETE WHERE "workspaceId" = {workspaceId:String} AND "timestamp" < {cutoffDate:DateTime64(3)}`,
-          {
-            workspaceId,
-            cutoffDate: formatDateTimeForClickHouse(cutoffDate),
-          },
+        await this.clickHouseService.deleteExpiredWorkspaceEvents(
+          tableName,
+          workspaceId,
+          formatDateTimeForClickHouse(cutoffDate),
         );
-
-        if (success) {
-          this.logger.log(
-            `Scheduled deletion of old ${tableName} events for workspace ${workspaceId} (retention: ${retentionDays} days)`,
-          );
-        } else {
-          this.logger.warn(
-            `Failed to schedule deletion for ${tableName} in workspace ${workspaceId}`,
-          );
-        }
-      } catch (error) {
+        this.logger.log(
+          `Scheduled deletion of old ${tableName} events for workspace ${workspaceId} (retention: ${retentionDays} days)`,
+        );
+      } catch {
+        failedTableNames.push(tableName);
         this.logger.error(
-          `Error cleaning up ${tableName} for workspace ${workspaceId}`,
-          error instanceof Error ? error.stack : String(error),
+          `Failed to schedule deletion for ${tableName} in workspace ${workspaceId}`,
         );
       }
+    }
+
+    if (failedTableNames.length > 0) {
+      throw new Error(
+        `Failed to clean up ${failedTableNames.length} ClickHouse event table${
+          failedTableNames.length === 1 ? '' : 's'
+        }`,
+      );
     }
   }
 }

@@ -9,20 +9,14 @@ import {
 } from '@clickhouse/client';
 import { config } from 'dotenv';
 
+import { resolveClickHouseUrl } from 'src/database/clickHouse/resolve-clickhouse-url';
+
 config({
   path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env',
-  override: true,
+  override: false,
 });
 
-const clickHouseUrl = () => {
-  const url = process.env.CLICKHOUSE_URL;
-
-  if (url) return url;
-
-  throw new Error(
-    'CLICKHOUSE_URL environment variable is not set. Please set it to the ClickHouse URL.',
-  );
-};
+const clickHouseUrl = () => resolveClickHouseUrl(process.env, 'maintenance');
 
 async function ensureDatabaseExists() {
   const [url, database] = clickHouseUrl().split(/\/(?=[^/]*$)/);
@@ -35,8 +29,6 @@ async function ensureDatabaseExists() {
     await client.command({
       query: `CREATE DATABASE IF NOT EXISTS "${database}"`,
     });
-  } catch {
-    // It may fail due to permissions, but the database already exists
   } finally {
     await client.close();
   }
@@ -78,7 +70,7 @@ async function recordMigration(filename: string, client: ClickHouseClient) {
 
 async function runMigrations() {
   const dir = path.join(__dirname);
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.sql'));
+  const files = fs.readdirSync(dir).filter((file) => file.endsWith('.sql'));
 
   await ensureDatabaseExists();
 
@@ -90,50 +82,55 @@ async function runMigrations() {
     log: { level: ClickHouseLogLevel.OFF },
   });
 
-  await ensureMigrationTable(client);
+  try {
+    await ensureMigrationTable(client);
 
-  for (const file of files) {
-    const alreadyRun = await hasMigrationBeenRun(file, client);
+    for (const file of files) {
+      const alreadyRun = await hasMigrationBeenRun(file, client);
 
-    if (alreadyRun) {
-      console.log(`✔︎ Skipping already applied migration: ${file}`);
-      continue;
-    }
-
-    const sql = fs.readFileSync(path.join(dir, file), 'utf8');
-
-    console.log(`⚡ Running ${file}...`);
-
-    // Split by semicolons and filter out empty statements/comments
-    const statements = sql
-      .split(';')
-      .map((stmt) => stmt.trim())
-      .filter(
-        (stmt) =>
-          stmt.length > 0 && !stmt.startsWith('--') && !stmt.match(/^[\s-]*$/),
-      );
-
-    for (const statement of statements) {
-      // Skip comment-only blocks
-      const cleanedStatement = statement
-        .split('\n')
-        .filter((line) => !line.trim().startsWith('--'))
-        .join('\n')
-        .trim();
-
-      if (cleanedStatement.length > 0) {
-        await client.command({ query: cleanedStatement });
+      if (alreadyRun) {
+        console.log(`Skipping already applied migration: ${file}`);
+        continue;
       }
+
+      const sql = fs.readFileSync(path.join(dir, file), 'utf8');
+
+      console.log(`Running ${file}...`);
+
+      // Split by semicolons and filter out empty statements/comments
+      const statements = sql
+        .split(';')
+        .map((statement) => statement.trim())
+        .filter(
+          (statement) =>
+            statement.length > 0 &&
+            !statement.startsWith('--') &&
+            !statement.match(/^[\s-]*$/),
+        );
+
+      for (const statement of statements) {
+        // Skip comment-only blocks
+        const cleanedStatement = statement
+          .split('\n')
+          .filter((line) => !line.trim().startsWith('--'))
+          .join('\n')
+          .trim();
+
+        if (cleanedStatement.length > 0) {
+          await client.command({ query: cleanedStatement });
+        }
+      }
+
+      await recordMigration(file, client);
     }
 
-    await recordMigration(file, client);
+    console.log('All migrations applied.');
+  } finally {
+    await client.close();
   }
-
-  console.log('✅ All migrations applied.');
-  await client.close();
 }
 
-runMigrations().catch((err) => {
-  console.error('Migration error:', err);
+runMigrations().catch(() => {
+  console.error('ClickHouse migration failed');
   process.exit(1);
 });

@@ -43,7 +43,11 @@ const eventSinksProvider = {
     }
 
     return getAvailableSinkNames(configuredSinkNames, {
-      hasClickhouseUrl: Boolean(twentyConfigService.get('CLICKHOUSE_URL')),
+      hasClickhouseUrl: Boolean(
+        twentyConfigService.get('AUDIT_LOGS_ENABLED')
+          ? twentyConfigService.get('CLICKHOUSE_INGEST_URL')
+          : twentyConfigService.get('CLICKHOUSE_URL'),
+      ),
     })
       .map((name) => sinkByName[name.toLowerCase()])
       .filter(isDefined);

@@ -12,145 +12,128 @@ import {
 } from '@clickhouse/client';
 
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
+import { type WorkspaceEventTable } from 'src/engine/core-modules/event-logs/types/workspace-event-envelope.type';
 
 export type ClickHouseInsertOptions = {
-  clientId?: string;
   asyncInsertBusyTimeoutMaxMs?: number;
+};
+
+export type ClickHouseClientRole = 'ingest' | 'read' | 'maintenance';
+
+const CLICKHOUSE_CLIENT_ROLES: ClickHouseClientRole[] = [
+  'ingest',
+  'read',
+  'maintenance',
+];
+
+const EVENT_LOG_TABLES: Record<WorkspaceEventTable, true> = {
+  workspaceEvent: true,
+  pageview: true,
+  objectEvent: true,
+  usageEvent: true,
+  applicationLog: true,
 };
 
 @Injectable()
 export class ClickHouseService implements OnModuleInit, OnModuleDestroy {
-  private mainClient: ClickHouseClient | undefined;
-  private clients: Map<string, ClickHouseClient> = new Map();
-  private isClientInitializing: Map<string, boolean> = new Map();
+  private readonly clients: Partial<
+    Record<ClickHouseClientRole, ClickHouseClient>
+  > = {};
+  private readonly auditLogsEnabled: boolean;
   private readonly logger = new Logger(ClickHouseService.name);
 
   constructor(private readonly twentyConfigService: TwentyConfigService) {
-    if (this.twentyConfigService.get('CLICKHOUSE_URL')) {
-      this.mainClient = createClient({
-        url: this.twentyConfigService.get('CLICKHOUSE_URL'),
-        compression: {
-          response: true,
-          request: true,
-        },
-        application: 'twenty',
-        log: { level: ClickHouseLogLevel.OFF },
-      });
-    }
-  }
+    this.auditLogsEnabled = this.twentyConfigService.get('AUDIT_LOGS_ENABLED');
 
-  public getMainClient(): ClickHouseClient | undefined {
-    return this.mainClient;
-  }
-
-  public async connectToClient(
-    clientId: string,
-    url?: string,
-  ): Promise<ClickHouseClient | undefined> {
-    if (!this.twentyConfigService.get('CLICKHOUSE_URL')) {
-      return undefined;
-    }
-
-    // Wait for a bit before trying again if another initialization is in progress
-    while (this.isClientInitializing.get(clientId)) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-
-    if (this.clients.has(clientId)) {
-      return this.clients.get(clientId);
-    }
-
-    this.isClientInitializing.set(clientId, true);
-
-    try {
-      const clientInstance = await this.createAndInitializeClient(url);
-
-      this.clients.set(clientId, clientInstance);
-
-      return clientInstance;
-    } catch (err) {
-      this.logger.error(
-        `Error connecting to ClickHouse client ${clientId}`,
-        err,
+    if (this.auditLogsEnabled) {
+      this.initializeRoleClient(
+        'ingest',
+        this.twentyConfigService.get('CLICKHOUSE_INGEST_URL'),
+      );
+      this.initializeRoleClient(
+        'read',
+        this.twentyConfigService.get('CLICKHOUSE_READ_URL'),
+      );
+      this.initializeRoleClient(
+        'maintenance',
+        this.twentyConfigService.get('CLICKHOUSE_MAINTENANCE_URL'),
       );
 
-      return undefined;
-    } finally {
-      this.isClientInitializing.delete(clientId);
-    }
-  }
-
-  private async createAndInitializeClient(
-    url?: string,
-  ): Promise<ClickHouseClient> {
-    const client = createClient({
-      url: url ?? this.twentyConfigService.get('CLICKHOUSE_URL'),
-      compression: {
-        response: true,
-        request: true,
-      },
-      application: 'twenty',
-      log: { level: ClickHouseLogLevel.OFF },
-    });
-
-    // Ping to check connection
-    await client.ping();
-
-    return client;
-  }
-
-  public async disconnectFromClient(clientId: string) {
-    if (!this.clients.has(clientId)) {
       return;
     }
 
-    const client = this.clients.get(clientId);
+    const legacyUrl = this.twentyConfigService.get('CLICKHOUSE_URL');
 
-    if (client) {
-      await client.close();
+    if (!legacyUrl) {
+      return;
     }
 
-    this.clients.delete(clientId);
+    const legacyClient = this.createClient(legacyUrl);
+
+    for (const role of CLICKHOUSE_CLIENT_ROLES) {
+      this.clients[role] = legacyClient;
+    }
   }
 
-  async onModuleInit() {
-    if (this.mainClient) {
-      // Just ping to verify the connection
+  public isClientConfigured(role: ClickHouseClientRole): boolean {
+    return this.clients[role] !== undefined;
+  }
+
+  public isAuditLogsConfigured(): boolean {
+    return (
+      this.auditLogsEnabled &&
+      CLICKHOUSE_CLIENT_ROLES.every((role) => this.isClientConfigured(role))
+    );
+  }
+
+  async onModuleInit(): Promise<void> {
+    const pingedClients = new Set<ClickHouseClient>();
+
+    for (const role of CLICKHOUSE_CLIENT_ROLES) {
+      const client = this.clients[role];
+
+      if (!client || pingedClients.has(client)) {
+        continue;
+      }
+
+      pingedClients.add(client);
+
       try {
-        await this.mainClient.ping();
-      } catch (err) {
-        this.logger.error('Error connecting to ClickHouse', err);
+        await client.ping();
+      } catch {
+        const message = `ClickHouse ${role} client failed to connect`;
+
+        this.logger.error(message);
+
+        if (this.auditLogsEnabled) {
+          throw new Error(message);
+        }
       }
     }
   }
 
-  async onModuleDestroy() {
-    // Close main client
-    if (this.mainClient) {
-      await this.mainClient.close();
-    }
+  async onModuleDestroy(): Promise<void> {
+    const distinctClients = new Set(Object.values(this.clients));
 
-    // Close all other clients
-    for (const [, client] of this.clients) {
-      await client.close();
-    }
+    await Promise.all(
+      [...distinctClients].map(async (client) => {
+        await client.close();
+      }),
+    );
   }
 
-  // oxlint-disable-next-line typescript/no-explicit-any
-  public async insert<T extends Record<string, any>>(
+  public async insert<T extends Record<string, unknown>>(
     table: string,
     values: T[],
     options: ClickHouseInsertOptions = {},
   ): Promise<{ success: boolean }> {
+    const client = this.clients.ingest;
+
+    if (!client) {
+      return { success: false };
+    }
+
     try {
-      const client = options.clientId
-        ? await this.connectToClient(options.clientId)
-        : this.mainClient;
-
-      if (!client) {
-        return { success: false };
-      }
-
       await this.insertInChunks(client, table, values, {
         chunkSize: 1000,
         maxMemoryMB: 4,
@@ -158,111 +141,97 @@ export class ClickHouseService implements OnModuleInit, OnModuleDestroy {
       });
 
       return { success: true };
-    } catch (err) {
-      this.logger.error('Error inserting data into ClickHouse', err);
+    } catch {
+      this.logger.error('Error inserting data into ClickHouse');
 
       return { success: false };
     }
   }
 
-  // Method to execute a select query
   public async select<T>(
     query: string,
-    // oxlint-disable-next-line typescript/no-explicit-any
-    params?: Record<string, any>,
-    clientId?: string,
+    params?: Record<string, unknown>,
   ): Promise<T[]> {
     try {
-      const client = clientId
-        ? await this.connectToClient(clientId)
-        : this.mainClient;
-
-      if (!client) {
-        return [];
-      }
-
-      const resultSet = await client.query({
-        query,
-        format: 'JSONEachRow',
-        query_params: params,
-      });
-
-      const result = await resultSet.json<T>();
-
-      return Array.isArray(result) ? result : [];
-    } catch (err) {
-      this.logger.error('Error executing select query in ClickHouse', err);
+      return await this.selectOrThrow<T>(query, params);
+    } catch {
+      this.logger.error('Error executing select query in ClickHouse');
 
       return [];
     }
   }
 
-  public async createDatabase(databaseName: string): Promise<boolean> {
-    try {
-      if (!this.mainClient) {
-        return false;
-      }
-
-      await this.mainClient.exec({
-        query: `CREATE DATABASE IF NOT EXISTS ${databaseName}`,
-      });
-
-      return true;
-    } catch (err) {
-      this.logger.error('Error creating database in ClickHouse', err);
-
-      return false;
-    }
-  }
-
-  public async dropDatabase(databaseName: string): Promise<boolean> {
-    try {
-      if (!this.mainClient) {
-        return false;
-      }
-
-      await this.mainClient.exec({
-        query: `DROP DATABASE IF EXISTS ${databaseName}`,
-      });
-
-      return true;
-    } catch (err) {
-      this.logger.error('Error dropping database in ClickHouse', err);
-
-      return false;
-    }
-  }
-
-  public async executeCommand(
+  public async selectOrThrow<T>(
     query: string,
-    // oxlint-disable-next-line typescript/no-explicit-any
-    params?: Record<string, any>,
-    clientId?: string,
-  ): Promise<boolean> {
+    params?: Record<string, unknown>,
+  ): Promise<T[]> {
+    const client = this.clients.read;
+
+    if (!client) {
+      throw new Error('ClickHouse read failed');
+    }
+
     try {
-      const client = clientId
-        ? await this.connectToClient(clientId)
-        : this.mainClient;
-
-      if (!client) {
-        return false;
-      }
-
-      await client.command({
+      const resultSet = await client.query({
         query,
+        format: 'JSONEachRow',
         query_params: params,
       });
+      const result = await resultSet.json<T>();
 
-      return true;
-    } catch (err) {
-      this.logger.error('Error executing command in ClickHouse', err);
-
-      return false;
+      return Array.isArray(result) ? result : [];
+    } catch {
+      throw new Error('ClickHouse read failed');
     }
   }
 
-  // oxlint-disable-next-line typescript/no-explicit-any
-  private async insertInChunks<T extends Record<string, any>>(
+  public async deleteExpiredWorkspaceEvents(
+    table: WorkspaceEventTable,
+    workspaceId: string,
+    cutoffDate: string,
+  ): Promise<void> {
+    if (EVENT_LOG_TABLES[table] !== true) {
+      throw new Error(`Unsupported ClickHouse event table: ${table}`);
+    }
+
+    const client = this.clients.maintenance;
+
+    if (!client) {
+      throw new Error('ClickHouse maintenance failed');
+    }
+
+    try {
+      await client.command({
+        query: `ALTER TABLE ${table} DELETE WHERE "workspaceId" = {workspaceId:String} AND "timestamp" < {cutoffDate:DateTime64(3)}`,
+        query_params: { workspaceId, cutoffDate },
+      });
+    } catch {
+      throw new Error('ClickHouse maintenance failed');
+    }
+  }
+
+  private initializeRoleClient(
+    role: ClickHouseClientRole,
+    url: string | undefined,
+  ): void {
+    if (url) {
+      this.clients[role] = this.createClient(url);
+    }
+  }
+
+  private createClient(url: string): ClickHouseClient {
+    return createClient({
+      url,
+      compression: {
+        response: true,
+        request: true,
+      },
+      application: 'twenty',
+      log: { level: ClickHouseLogLevel.OFF },
+    });
+  }
+
+  private async insertInChunks<T extends Record<string, unknown>>(
     client: ClickHouseClient,
     table: string,
     values: T[],
@@ -280,6 +249,7 @@ export class ClickHouseService implements OnModuleInit, OnModuleDestroy {
 
     const flush = async () => {
       if (chunk.length === 0) return;
+
       await client.insert({
         table,
         values: chunk,
