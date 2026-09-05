@@ -1470,3 +1470,48 @@ requires every allowed role to run the disposable desktop-browser smoke against 
 exact fixture totals, and a U4 import requires a reconciled disposable run plus
 separate live-change approval. None of those live/configured outcomes is claimed by
 this repository change.
+
+## Mailbox, calendar, and SMTP operating contract
+
+Keep credentials, OAuth grants/tokens, message bodies, calendar descriptions,
+attachments, and provider payloads out of Git, logs, screenshots, exports, and change
+records. Evidence may contain only approved redacted identifiers, timestamps, hashes,
+environment/image references, and pass/fail results.
+
+Release A keeps Gmail and Google Calendar disabled. Its application email driver
+remains `LOGGER` until U10 passes; a separately approved Release A change may then
+enable authenticated-TLS SMTP for low-volume application mail only. Mailbox and
+calendar synchronization are Release B-only and must not open before U8 passes. Under
+an individual administrator session, connect the true human-operated
+`team@paryatech.in` account—not an alias, service account, test identity, or shared
+Twenty login. Import only approved selected customer-facing folders/labels, keep
+internal-email sync off, and set Contact auto-creation to `None`.
+
+Keep calendar event auto-creation off. Because the connected account's primary
+calendar is the synchronization boundary, it must be a dedicated, approved
+customer-facing calendar; private and all-internal events remain elsewhere. Before
+sync starts, the named data owner must record explicit acceptance that the selected
+message bodies and calendar content will be broadly visible to operators.
+
+SMTP provider acceptance is neither delivery nor `Contacted`. A reply or other
+verified two-way interaction is the only SMTP-path evidence that may establish
+`Engaged`. Do not use this path for campaigns, sequences, bulk mail, or blind retries.
+Any provider, credential, scope, folder, calendar, send, delivery, bounce, or reply
+failure creates an owned C08 Shared Exception and stops retry until an explicit resume
+decision.
+
+For an emergency halt, disable the Gmail and Calendar providers, set the email driver
+back to `LOGGER`, redeploy server and worker, delete the Twenty connected account,
+revoke the Google grant, and revoke or rotate the SMTP credential. Preserve the last
+trusted state and C08 evidence; do not reconnect or resend until the exception records
+an explicit approved resume.
+
+### U7 deterministic documentation verification
+
+The U7 document check passes only when this heading occurs exactly once and a literal
+content assertion finds every Release A/Release B/U8/U10 gate, the selected-folder and
+auto-creation controls, named data-owner acceptance, SMTP counting restrictions, C08
+stop condition, and emergency-halt/resume steps above. `git diff --check` must also
+pass for this file, and the staged diff must contain only this runbook. This
+documentation change does not claim that any staging or live provider smoke has run or
+passed.
