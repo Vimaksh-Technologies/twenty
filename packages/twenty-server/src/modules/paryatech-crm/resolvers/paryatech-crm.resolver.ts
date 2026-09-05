@@ -47,6 +47,7 @@ import {
   type AgencyActionResult,
   type ParyatechCrmAction,
 } from 'src/modules/paryatech-crm/types/agency-contact-control.type';
+import { type GuardedActionIdentity } from 'src/modules/paryatech-crm/types/guarded-action-receipt.type';
 import { type GuardedTransitionResult } from 'src/modules/paryatech-crm/types/paryatech-transition.type';
 
 @ObjectType('ParyatechCrmActionResult')
@@ -257,17 +258,22 @@ export class ParyatechCrmResolver {
   async recordOutreachOutcome(
     @Args('input') input: RecordOutreachOutcomeInput,
     @AuthWorkspace() workspace: WorkspaceEntity,
-    @AuthUserWorkspaceId() userWorkspaceId: string,
-    @AuthUser() user: AuthContextUser,
+    @AuthUserWorkspaceId({ allowUndefined: true })
+    userWorkspaceId?: string,
+    @AuthUser({ allowUndefined: true }) user?: AuthContextUser,
+    @AuthApiKey() apiKey?: ApiKeyEntity,
   ) {
-    return this.agencyContactControlService.recordOutreachOutcome({
-      workspaceId: workspace.id,
+    const actor = await this.resolveGuardedActionIdentity(
+      workspace.id,
       userWorkspaceId,
-      actorWorkspaceMemberId: await this.getWorkspaceMemberId(
-        workspace.id,
-        user.id,
-      ),
+      user,
+      apiKey,
+    );
+
+    return this.agencyContactControlService.recordOutreachOutcome({
       ...input,
+      workspaceId: workspace.id,
+      ...actor,
     });
   }
 
@@ -316,19 +322,37 @@ export class ParyatechCrmResolver {
   async recordSupportReceipt(
     @Args('input') input: RecordSupportReceiptInput,
     @AuthWorkspace() workspace: WorkspaceEntity,
-    @AuthUserWorkspaceId() userWorkspaceId: string,
-    @AuthUser() user: AuthContextUser,
+    @AuthUserWorkspaceId({ allowUndefined: true })
+    userWorkspaceId?: string,
+    @AuthUser({ allowUndefined: true }) user?: AuthContextUser,
+    @AuthApiKey() apiKey?: ApiKeyEntity,
   ) {
-    const actorWorkspaceMemberId = await this.getWorkspaceMemberId(
+    const actor = await this.resolveGuardedActionIdentity(
       workspace.id,
-      user.id,
+      userWorkspaceId,
+      user,
+      apiKey,
     );
+
     return this.supportCaseIntakeService.recordReceipt({
       workspaceId: workspace.id,
-      userWorkspaceId,
-      actorWorkspaceMemberId,
-      ...input,
-      ownerId: actorWorkspaceMemberId,
+      ...actor,
+      receiptKey: input.receiptKey,
+      providerOrSourceId: input.providerOrSourceId,
+      payloadHash: input.payloadHash,
+      channel: input.channel,
+      sourceReceivedAt: input.sourceReceivedAt,
+      subject: input.subject,
+      summary: input.summary,
+      priority: input.priority,
+      verifiedOpenCaseId: input.verifiedOpenCaseId,
+      verifiedMatchEvidence: input.verifiedMatchEvidence,
+      agencyId: input.agencyId,
+      contactId: input.contactId,
+      productId: input.productId,
+      agreementId: input.agreementId,
+      reason: input.reason,
+      evidence: input.evidence,
     });
   }
 
@@ -402,6 +426,31 @@ export class ParyatechCrmResolver {
       ),
       ...input,
     });
+  }
+
+  private async resolveGuardedActionIdentity(
+    workspaceId: string,
+    userWorkspaceId: string | undefined,
+    user: AuthContextUser | undefined,
+    apiKey: ApiKeyEntity | undefined,
+  ): Promise<GuardedActionIdentity> {
+    if (isDefined(apiKey) && !isDefined(userWorkspaceId) && !isDefined(user)) {
+      return { apiKeyId: apiKey.id };
+    }
+    if (!isDefined(apiKey) && isDefined(userWorkspaceId) && isDefined(user)) {
+      return {
+        userWorkspaceId,
+        actorWorkspaceMemberId: await this.getWorkspaceMemberId(
+          workspaceId,
+          user.id,
+        ),
+      };
+    }
+
+    throw new ParyatechCrmException(
+      'Guarded CRM action requires exactly one authenticated human or API key actor',
+      ParyatechCrmExceptionCode.PERMISSION_DENIED,
+    );
   }
 
   private requireCommercialCutoverApiKey(

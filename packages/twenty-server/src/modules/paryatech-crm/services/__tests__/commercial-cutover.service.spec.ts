@@ -116,6 +116,20 @@ describe('CommercialCutoverService', () => {
     expect(store.writes).toBe(0);
   });
 
+  it('should deny agreement inspection to every non-cutover API-key role', async () => {
+    const store = new InMemoryCommercialCutoverStore();
+    store.roleLabel = 'Paryatech Communication Intake';
+
+    await expect(
+      new CommercialCutoverService(store).inspectAgreement({
+        apiKeyId: 'wrong-role-key',
+        sourceCommercialId: 'commercial-1',
+        workspaceId: 'workspace-1',
+      }),
+    ).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+    expect(store.writes).toBe(0);
+  });
+
   it('should validate a dry run under locks without writing an Agreement or receipt', async () => {
     const store = new InMemoryCommercialCutoverStore();
 

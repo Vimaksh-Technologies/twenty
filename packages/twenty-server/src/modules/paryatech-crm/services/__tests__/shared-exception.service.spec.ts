@@ -58,6 +58,13 @@ describe('SharedExceptionService', () => {
       resumeReason: 'Affected support gate passed; resume reviewed work.',
       resumedAt: NOW,
     });
+    expect(store.guardedActionReceipts).toEqual([
+      expect.objectContaining({
+        action: 'RESUME_SHARED_EXCEPTION',
+        priorState: expect.objectContaining({ resumedAt: null }),
+        resultState: expect.objectContaining({ resumedAt: NOW.toISOString() }),
+      }),
+    ]);
   });
 
   it.each([
@@ -121,5 +128,6 @@ describe('SharedExceptionService', () => {
       replayed: true,
     });
     expect(store.records.sharedException[0].resumedAt).toBe(NOW);
+    expect(store.guardedActionReceipts).toHaveLength(2);
   });
 });

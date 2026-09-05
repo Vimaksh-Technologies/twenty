@@ -280,11 +280,27 @@ describe('AgreementTransitionService', () => {
   it.each(AGREEMENT_CASES)(
     'should pass $name with current evidence',
     async (agreementCase) => {
-      const { service } = setup(agreementCase);
+      const { store, service } = setup(agreementCase);
 
       const result = await service.transition(validInput(agreementCase));
 
       expect(result.state).toBe(agreementCase.targetState);
+      expect(store.guardedActionReceipts).toEqual([
+        expect.objectContaining({
+          action: 'TRANSITION_AGREEMENT',
+          actorId: 'member-1',
+          evidenceReference: 'Reviewed source evidence.',
+          resultState: expect.objectContaining({
+            [agreementCase.transition === 'PAYMENT'
+              ? 'paymentState'
+              : agreementCase.transition === 'RENEWAL'
+                ? 'renewalState'
+                : agreementCase.transition === 'ACTIVATION'
+                  ? 'activationState'
+                  : 'adoptionState']: agreementCase.targetState,
+          }),
+        }),
+      ]);
     },
   );
 
@@ -493,5 +509,6 @@ describe('AgreementTransitionService', () => {
       lastTrustedState: expect.stringContaining('"renewalState":"Renewing"'),
       evidence: conflictInput.evidence,
     });
+    expect(store.guardedActionReceipts).toHaveLength(2);
   });
 });

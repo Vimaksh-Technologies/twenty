@@ -11,6 +11,8 @@ import {
   isNonEmptyText,
   toTransitionResult,
 } from 'src/modules/paryatech-crm/services/guarded-transition.helpers';
+import { snapshotGuardedActionState } from 'src/modules/paryatech-crm/services/guarded-action-receipt.service';
+import { PARYATECH_CRM_ACTION } from 'src/modules/paryatech-crm/types/agency-contact-control.type';
 import {
   PARYATECH_ROLE,
   ParyatechTransitionStore,
@@ -67,6 +69,7 @@ export class SharedExceptionService {
             ParyatechCrmExceptionCode.PERMISSION_DENIED,
           );
         }
+        const priorState = snapshotGuardedActionState(exception);
         if (exception.resumedAt != null) {
           if (
             exception.status === 'Resolved' &&
@@ -74,7 +77,7 @@ export class SharedExceptionService {
             exception.resumeReason === params.reason.trim() &&
             exception.evidence === params.evidence.trim()
           ) {
-            return {
+            const result = {
               ...toTransitionResult(
                 exception.id,
                 'sharedException',
@@ -82,6 +85,20 @@ export class SharedExceptionService {
               ),
               replayed: true,
             };
+            await transaction.appendGuardedActionReceipt({
+              action: PARYATECH_CRM_ACTION.RESUME_SHARED_EXCEPTION,
+              actor: params,
+              reason: params.reason,
+              evidenceReference: params.evidence,
+              occurredAt: params.now ?? new Date(),
+              objectName: 'sharedException',
+              recordId: exception.id,
+              ownerId: params.actorWorkspaceMemberId,
+              priorState,
+              resultState: snapshotGuardedActionState(exception),
+            });
+
+            return result;
           }
           throw new ParyatechCrmException(
             'Exception was already resumed with different evidence or reason',
@@ -103,6 +120,22 @@ export class SharedExceptionService {
         await transaction.update('sharedException', exception.id, {
           resumeReason: params.reason.trim(),
           resumedAt: params.now ?? new Date(),
+        });
+        const updatedException = await transaction.getRequired(
+          'sharedException',
+          exception.id,
+        );
+        await transaction.appendGuardedActionReceipt({
+          action: PARYATECH_CRM_ACTION.RESUME_SHARED_EXCEPTION,
+          actor: params,
+          reason: params.reason,
+          evidenceReference: params.evidence,
+          occurredAt: params.now ?? new Date(),
+          objectName: 'sharedException',
+          recordId: exception.id,
+          ownerId: params.actorWorkspaceMemberId,
+          priorState,
+          resultState: snapshotGuardedActionState(updatedException),
         });
 
         return toTransitionResult(exception.id, 'sharedException', 'Resolved');

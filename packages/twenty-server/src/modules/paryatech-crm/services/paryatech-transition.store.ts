@@ -4,6 +4,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { isDefined } from 'twenty-shared/utils';
 import { In, type Repository } from 'typeorm';
 
+import { ApiKeyRoleService } from 'src/engine/core-modules/api-key/services/api-key-role.service';
+import { getWorkspaceAuthContext } from 'src/engine/core-modules/auth/storage/workspace-auth-context.storage';
 import { FieldMetadataEntity } from 'src/engine/metadata-modules/field-metadata/field-metadata.entity';
 import { ObjectMetadataEntity } from 'src/engine/metadata-modules/object-metadata/object-metadata.entity';
 import { RoleEntity } from 'src/engine/metadata-modules/role/role.entity';
@@ -13,11 +15,12 @@ import { GlobalWorkspaceOrmManager } from 'src/engine/twenty-orm/global-workspac
 import { type WorkspaceRepository } from 'src/engine/twenty-orm/repository/workspace.repository';
 import { InjectWorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/inject-workspace-scoped-repository.decorator';
 import { type WorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/workspace-scoped-repository';
-import { buildSystemAuthContext } from 'src/engine/twenty-orm/utils/build-system-auth-context.util';
+import { appendGuardedActionReceipt } from 'src/modules/paryatech-crm/services/guarded-action-receipt.service';
 import {
   ParyatechCrmException,
   ParyatechCrmExceptionCode,
 } from 'src/modules/paryatech-crm/exceptions/paryatech-crm.exception';
+import { type GuardedActionIdentity } from 'src/modules/paryatech-crm/types/guarded-action-receipt.type';
 import {
   GUARDED_TRANSITION_OBJECT_NAMES,
   GUARDED_TRANSITION_REQUIRED_FIELDS,
@@ -39,6 +42,7 @@ export class TypeOrmParyatechTransitionStore extends ParyatechTransitionStore {
   constructor(
     private readonly globalWorkspaceOrmManager: GlobalWorkspaceOrmManager,
     private readonly userRoleService: UserRoleService,
+    private readonly apiKeyRoleService: ApiKeyRoleService,
     @InjectWorkspaceScopedRepository(RoleEntity)
     private readonly roleRepository: WorkspaceScopedRepository<RoleEntity>,
     @InjectRepository(ObjectMetadataEntity)
@@ -49,18 +53,22 @@ export class TypeOrmParyatechTransitionStore extends ParyatechTransitionStore {
     super();
   }
 
-  async getActorRoleLabel({
-    workspaceId,
-    userWorkspaceId,
-  }: {
-    workspaceId: string;
-    userWorkspaceId: string;
-  }): Promise<string> {
+  async getActorRoleLabel(
+    params: GuardedActionIdentity & { workspaceId: string },
+  ): Promise<string> {
+    if (params.apiKeyId !== undefined) {
+      const role = await this.apiKeyRoleService.getRoleDtoByApiKeyId({
+        apiKeyId: params.apiKeyId,
+        workspaceId: params.workspaceId,
+      });
+
+      return role.label;
+    }
     const roleId = await this.userRoleService.getRoleIdForUserWorkspace({
-      workspaceId,
-      userWorkspaceId,
+      workspaceId: params.workspaceId,
+      userWorkspaceId: params.userWorkspaceId,
     });
-    const role = await this.roleRepository.findOne(workspaceId, {
+    const role = await this.roleRepository.findOne(params.workspaceId, {
       where: { id: roleId },
     });
     if (!role) {
@@ -105,11 +113,18 @@ export class TypeOrmParyatechTransitionStore extends ParyatechTransitionStore {
                   lock: { mode: 'pessimistic_write' },
                 })
               : null;
-            return operation(this.createTransaction(manager, schema, primary));
+            return operation(
+              this.createTransaction(
+                manager,
+                schema,
+                primary,
+                options.workspaceId,
+              ),
+            );
           },
         );
       },
-      buildSystemAuthContext(options.workspaceId),
+      getWorkspaceAuthContext(),
     );
   }
 
@@ -117,6 +132,7 @@ export class TypeOrmParyatechTransitionStore extends ParyatechTransitionStore {
     manager: WorkspaceEntityManager,
     schema: Schema,
     record: ParyatechRecord | null,
+    workspaceId: string,
   ): ParyatechTransitionTransaction {
     return {
       record,
@@ -164,6 +180,8 @@ export class TypeOrmParyatechTransitionStore extends ParyatechTransitionStore {
         Object.assign(target, patch);
         return repository.save(target);
       },
+      appendGuardedActionReceipt: (receipt) =>
+        appendGuardedActionReceipt(manager, workspaceId, receipt),
     };
   }
 

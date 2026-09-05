@@ -1,3 +1,9 @@
+import { buildGuardedActionReceipt } from 'src/modules/paryatech-crm/services/guarded-action-receipt.service';
+import {
+  type GuardedActionIdentity,
+  type GuardedActionReceipt,
+} from 'src/modules/paryatech-crm/types/guarded-action-receipt.type';
+
 import {
   type ParyatechRecord,
   ParyatechTransitionStore,
@@ -7,11 +13,20 @@ import {
 
 export class InMemoryParyatechTransitionStore extends ParyatechTransitionStore {
   roleLabel = 'Paryatech Operator';
+  apiKeyRoleLabels = new Map([
+    ['support-key', 'Paryatech Support Intake'],
+    ['unrelated-key', 'Paryatech Operator'],
+  ]);
   records: Record<string, ParyatechRecord[]> = {};
   createdRecords: Array<{ objectName: string; record: ParyatechRecord }> = [];
+  guardedActionReceipts: GuardedActionReceipt[] = [];
 
-  async getActorRoleLabel() {
-    return this.roleLabel;
+  async getActorRoleLabel(
+    params: GuardedActionIdentity & { workspaceId: string },
+  ) {
+    return params.apiKeyId === undefined
+      ? this.roleLabel
+      : (this.apiKeyRoleLabels.get(params.apiKeyId) ?? '');
   }
 
   async transact<TData>(
@@ -56,6 +71,11 @@ export class InMemoryParyatechTransitionStore extends ParyatechTransitionStore {
         const record = await transaction.getRequired(objectName, id);
         Object.assign(record, patch);
         return record;
+      },
+      appendGuardedActionReceipt: async (receipt) => {
+        this.guardedActionReceipts.push(
+          buildGuardedActionReceipt(options.workspaceId, receipt),
+        );
       },
     };
 

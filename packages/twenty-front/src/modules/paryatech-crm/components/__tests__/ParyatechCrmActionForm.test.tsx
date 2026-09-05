@@ -165,7 +165,7 @@ describe('ParyatechCrmActionForm', () => {
   });
 
   it('should submit a claim only once on a double click', async () => {
-    let resolveMutation = () => undefined;
+    let resolveMutation: () => void = jest.fn();
     execute.mockReturnValue(
       new Promise<void>((resolve) => {
         resolveMutation = resolve;
@@ -269,15 +269,15 @@ describe('ParyatechCrmActionForm', () => {
     fireEvent.click(button);
 
     await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
-    expect(execute).toHaveBeenCalledWith(
-      'RECORD_OUTREACH_OUTCOME',
-      expect.objectContaining({
+    expect(execute).toHaveBeenCalledWith({
+      action: 'RECORD_OUTREACH_OUTCOME',
+      input: expect.objectContaining({
         channel: 'Official WhatsApp',
         outcome: 'PENDING_UNKNOWN',
         providerEvidenceKey: 'provider-message-1',
       }),
-    );
-    expect(execute.mock.calls[0][1]).not.toHaveProperty('contactId');
+    });
+    expect(execute.mock.calls[0][0].input.contactId).toBeUndefined();
   });
 
   it('should require a Contact for person-reached outcomes', () => {
@@ -373,14 +373,14 @@ describe('ParyatechCrmActionForm', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Confirm action' }));
 
     await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
-    expect(execute).toHaveBeenCalledWith(
-      'TRANSITION_OPPORTUNITY',
-      expect.objectContaining({
+    expect(execute).toHaveBeenCalledWith({
+      action: 'TRANSITION_OPPORTUNITY',
+      input: expect.objectContaining({
         opportunityId: 'opportunity-1',
         expectedStage: 'Qualified',
         targetStage: 'Demo Scheduled',
       }),
-    );
+    });
   });
 
   it('should use visible relation selectors instead of raw Opportunity IDs', () => {

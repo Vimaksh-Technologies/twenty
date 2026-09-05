@@ -15,9 +15,13 @@ const setup = () => {
     claimAgency: jest
       .fn()
       .mockResolvedValue({ agencyId: 'agency-1', status: 'Claimed' }),
+    recordOutreachOutcome: jest
+      .fn()
+      .mockResolvedValue({ agencyId: 'agency-1' }),
   } as unknown as AgencyContactControlService;
   const commercialCutoverService = {
     applyAgreement: jest.fn().mockResolvedValue({ status: 'APPLIED' }),
+    inspectAgreement: jest.fn().mockResolvedValue({ id: 'agreement-1' }),
   } as unknown as CommercialCutoverService;
   const availabilityService = {
     getAvailableActions: jest
@@ -240,8 +244,55 @@ describe('ParyatechCrmResolver integration boundary', () => {
       }),
     );
     expect(services.supportService.recordReceipt).toHaveBeenCalledWith(
-      expect.objectContaining({ ownerId: 'member-1' }),
+      expect.not.objectContaining({ ownerId: expect.anything() }),
     );
+  });
+
+  it('should bind the communication and support intake mutations to authenticated API keys', async () => {
+    const services = setup();
+
+    await services.resolver.recordOutreachOutcome(
+      { agencyId: 'agency-1' } as never,
+      workspace,
+      undefined,
+      undefined,
+      { id: 'communication-key' } as never,
+    );
+    await services.resolver.recordSupportReceipt(
+      { receiptKey: 'Email:provider-1' } as never,
+      workspace,
+      undefined,
+      undefined,
+      { id: 'support-key' } as never,
+    );
+
+    expect(services.agencyService.recordOutreachOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiKeyId: 'communication-key',
+        workspaceId: 'workspace-1',
+      }),
+    );
+    expect(services.supportService.recordReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiKeyId: 'support-key',
+        workspaceId: 'workspace-1',
+      }),
+    );
+  });
+
+  it('should reject ordinary sessions at the commercial inspection boundary', async () => {
+    const { resolver, commercialCutoverService } = setup();
+
+    await expect(
+      resolver.inspectCommercialCutoverAgreement(
+        'commercial-1',
+        workspace,
+        undefined,
+      ),
+    ).rejects.toMatchObject({
+      code: ParyatechCrmExceptionCode.PERMISSION_DENIED,
+    });
+    expect(commercialCutoverService.inspectAgreement).not.toHaveBeenCalled();
   });
 
   it('should require API-key authentication for commercial cutover', async () => {

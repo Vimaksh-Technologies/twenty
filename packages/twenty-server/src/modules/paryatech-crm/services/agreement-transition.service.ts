@@ -14,6 +14,8 @@ import {
   requireText,
   toTransitionResult,
 } from 'src/modules/paryatech-crm/services/guarded-transition.helpers';
+import { snapshotGuardedActionState } from 'src/modules/paryatech-crm/services/guarded-action-receipt.service';
+import { PARYATECH_CRM_ACTION } from 'src/modules/paryatech-crm/types/agency-contact-control.type';
 import {
   type ActivationState,
   type AdoptionState,
@@ -80,32 +82,58 @@ export class AgreementTransitionService {
         ]);
         const stateField = this.stateField(params.transition);
         assertExpectedState(agreement[stateField], params.expectedState);
-        if (
+        const priorState = snapshotGuardedActionState(agreement);
+        const isAuthorityConflict =
           params.evidenceState === 'Conflict' &&
           !(
             params.transition === 'ACTIVATION' &&
             params.targetState === 'Review Required'
-          )
-        ) {
-          return this.recordAuthorityConflict(transaction, agreement, params);
-        }
-        const patch = await this.buildPatch(transaction, agreement, params);
-        await transaction.update('commercialAgreement', params.agreementId, {
-          ...patch,
-          evidenceSource: params.evidenceSource.trim(),
-          evidenceType: params.evidenceType.trim(),
-          evidenceVerifierId: params.evidenceVerifierId,
-          evidenceObservedAt: params.evidenceObservedAt,
-          evidenceRecordedAt: params.now ?? new Date(),
-          evidenceState: params.evidenceState,
+          );
+        const result = isAuthorityConflict
+          ? await this.recordAuthorityConflict(transaction, agreement, params)
+          : await this.applyTransition(transaction, agreement, params);
+        const resultAgreement = await transaction.getRequired(
+          'commercialAgreement',
+          params.agreementId,
+        );
+        await transaction.appendGuardedActionReceipt({
+          action: PARYATECH_CRM_ACTION.TRANSITION_AGREEMENT,
+          actor: params,
+          reason: params.reason,
+          evidenceReference: params.evidence,
+          occurredAt: params.now ?? new Date(),
+          objectName: 'commercialAgreement',
+          recordId: params.agreementId,
+          ownerId: params.actorWorkspaceMemberId,
+          priorState,
+          resultState: snapshotGuardedActionState(resultAgreement),
         });
 
-        return toTransitionResult(
-          params.agreementId,
-          'commercialAgreement',
-          params.targetState,
-        );
+        return result;
       },
+    );
+  }
+
+  private async applyTransition(
+    transaction: ParyatechTransitionTransaction,
+    agreement: Record<string, unknown> & { id: string },
+    params: TransitionAgreementParams,
+  ) {
+    const patch = await this.buildPatch(transaction, agreement, params);
+    await transaction.update('commercialAgreement', params.agreementId, {
+      ...patch,
+      evidenceSource: params.evidenceSource.trim(),
+      evidenceType: params.evidenceType.trim(),
+      evidenceVerifierId: params.evidenceVerifierId,
+      evidenceObservedAt: params.evidenceObservedAt,
+      evidenceRecordedAt: params.now ?? new Date(),
+      evidenceState: params.evidenceState,
+    });
+
+    return toTransitionResult(
+      params.agreementId,
+      'commercialAgreement',
+      params.targetState,
     );
   }
 

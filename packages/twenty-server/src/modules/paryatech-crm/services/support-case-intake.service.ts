@@ -19,6 +19,9 @@ import {
   requireText,
   toTransitionResult,
 } from 'src/modules/paryatech-crm/services/guarded-transition.helpers';
+import { snapshotGuardedActionState } from 'src/modules/paryatech-crm/services/guarded-action-receipt.service';
+import { PARYATECH_CRM_ACTION } from 'src/modules/paryatech-crm/types/agency-contact-control.type';
+import { type GuardedActionIdentity } from 'src/modules/paryatech-crm/types/guarded-action-receipt.type';
 import {
   PARYATECH_ROLE,
   type ParyatechRecord,
@@ -30,10 +33,9 @@ import {
   type TransitionSupportCaseParams,
 } from 'src/modules/paryatech-crm/types/paryatech-transition.type';
 
-const SUPPORT_ACTOR_ROLES = [
+const HUMAN_SUPPORT_ACTOR_ROLES = [
   PARYATECH_ROLE.OPERATOR,
   PARYATECH_ROLE.COMMERCIAL_SENSITIVE,
-  'Paryatech Support Intake',
 ] as const;
 const OPEN_CASE_STATUSES: SupportStatus[] = [
   'New',
@@ -84,7 +86,7 @@ export class SupportCaseIntakeService {
             'supportCase',
             requireText(existingReceipt.caseId, 'supportReceipt.case'),
           );
-          return {
+          const result = {
             ...toTransitionResult(
               supportCase.id,
               'supportCase',
@@ -92,12 +94,36 @@ export class SupportCaseIntakeService {
             ),
             replayed: true,
           };
+          await transaction.appendGuardedActionReceipt({
+            action: PARYATECH_CRM_ACTION.RECORD_SUPPORT_RECEIPT,
+            actor: params,
+            reason: params.reason,
+            evidenceReference: params.evidence,
+            occurredAt: params.now ?? new Date(),
+            objectName: 'supportCase',
+            recordId: supportCase.id,
+            ownerId: this.recordOwnerId(supportCase),
+            priorState: snapshotGuardedActionState({
+              supportReceipt: existingReceipt,
+              supportCase,
+            }),
+            resultState: snapshotGuardedActionState({
+              supportReceipt: existingReceipt,
+              supportCase,
+            }),
+          });
+
+          return result;
         }
 
         const supportCase = params.verifiedOpenCaseId
           ? await this.requireVerifiedOpenCase(transaction, params)
-          : await this.createCase(transaction, params);
-        await transaction.create('supportReceipt', {
+          : await this.createCase(
+              transaction,
+              params,
+              await this.resolveCaseOwner(transaction, params),
+            );
+        const createdReceipt = await transaction.create('supportReceipt', {
           receiptKey: params.receiptKey.trim(),
           channel: params.channel,
           providerOrSourceId: params.providerOrSourceId.trim(),
@@ -106,8 +132,7 @@ export class SupportCaseIntakeService {
           caseId: supportCase.id,
           receiptDisposition: 'Support',
         });
-
-        return {
+        const result = {
           ...toTransitionResult(
             supportCase.id,
             'supportCase',
@@ -115,6 +140,26 @@ export class SupportCaseIntakeService {
           ),
           replayed: false,
         };
+        await transaction.appendGuardedActionReceipt({
+          action: PARYATECH_CRM_ACTION.RECORD_SUPPORT_RECEIPT,
+          actor: params,
+          reason: params.reason,
+          evidenceReference: params.evidence,
+          occurredAt: params.now ?? new Date(),
+          objectName: 'supportCase',
+          recordId: supportCase.id,
+          ownerId: this.recordOwnerId(supportCase),
+          priorState: snapshotGuardedActionState({
+            supportReceipt: null,
+            supportCase: null,
+          }),
+          resultState: snapshotGuardedActionState({
+            supportReceipt: createdReceipt,
+            supportCase,
+          }),
+        });
+
+        return result;
       },
     );
   }
@@ -153,16 +198,31 @@ export class SupportCaseIntakeService {
             `Cannot respond substantively to ${String(supportCase.status)}`,
           );
         }
+        const priorState = snapshotGuardedActionState(supportCase);
         const targetStatus =
           supportCase.status === 'New' || supportCase.status === 'Assigned'
             ? 'In Progress'
             : String(supportCase.status);
-        if (supportCase.firstSubstantiveResponseAt == null) {
-          await transaction.update('supportCase', supportCase.id, {
-            firstSubstantiveResponseAt: params.respondedAt,
-            status: targetStatus,
-          });
-        }
+        const updatedSupportCase =
+          supportCase.firstSubstantiveResponseAt == null
+            ? await transaction.update('supportCase', supportCase.id, {
+                firstSubstantiveResponseAt: params.respondedAt,
+                status: targetStatus,
+              })
+            : supportCase;
+        await transaction.appendGuardedActionReceipt({
+          action: PARYATECH_CRM_ACTION.RECORD_SUBSTANTIVE_RESPONSE,
+          actor: params,
+          reason: params.reason,
+          evidenceReference: params.evidence,
+          occurredAt: params.now ?? new Date(),
+          objectName: 'supportCase',
+          recordId: supportCase.id,
+          ownerId: params.actorWorkspaceMemberId,
+          priorState,
+          resultState: snapshotGuardedActionState(updatedSupportCase),
+          responseSummary: params.responseSummary,
+        });
 
         return toTransitionResult(supportCase.id, 'supportCase', targetStatus);
       },
@@ -193,6 +253,7 @@ export class SupportCaseIntakeService {
             `Case transition ${params.expectedStatus} -> ${params.targetStatus} is not listed`,
           );
         }
+        const priorState = snapshotGuardedActionState(supportCase);
 
         const closesAsClassification =
           params.targetStatus === 'Closed' &&
@@ -227,6 +288,22 @@ export class SupportCaseIntakeService {
             ),
           );
         }
+        const updatedSupportCase = await transaction.getRequired(
+          'supportCase',
+          supportCase.id,
+        );
+        await transaction.appendGuardedActionReceipt({
+          action: PARYATECH_CRM_ACTION.TRANSITION_SUPPORT_CASE,
+          actor: params,
+          reason: params.reason,
+          evidenceReference: params.evidence,
+          occurredAt: params.now ?? new Date(),
+          objectName: 'supportCase',
+          recordId: supportCase.id,
+          ownerId: params.actorWorkspaceMemberId,
+          priorState,
+          resultState: snapshotGuardedActionState(updatedSupportCase),
+        });
 
         return toTransitionResult(
           supportCase.id,
@@ -237,13 +314,14 @@ export class SupportCaseIntakeService {
     );
   }
 
-  private async assertSupportActor(params: {
-    workspaceId: string;
-    userWorkspaceId: string;
-  }) {
+  private async assertSupportActor(
+    params: GuardedActionIdentity & { workspaceId: string },
+  ) {
     assertActorRole(
       await this.store.getActorRoleLabel(params),
-      SUPPORT_ACTOR_ROLES,
+      params.apiKeyId === undefined
+        ? HUMAN_SUPPORT_ACTOR_ROLES
+        : [PARYATECH_ROLE.SUPPORT_INTAKE],
     );
   }
 
@@ -262,14 +340,7 @@ export class SupportCaseIntakeService {
     requireText(params.payloadHash, 'payloadHash');
     requireText(params.subject, 'subject');
     requireText(params.summary, 'summary');
-    requireText(params.ownerId, 'owner');
     requireDate(params.sourceReceivedAt, 'sourceReceivedAt');
-    if (params.ownerId !== params.actorWorkspaceMemberId) {
-      throw new ParyatechCrmException(
-        'The intake actor must own a newly captured Case',
-        ParyatechCrmExceptionCode.PERMISSION_DENIED,
-      );
-    }
   }
 
   private assertMatchingReplay(
@@ -328,12 +399,14 @@ export class SupportCaseIntakeService {
         objectName: string,
         where: Record<string, unknown>,
       ) => Promise<ParyatechRecord | null>;
+      getRequired: (objectName: string, id: string) => Promise<ParyatechRecord>;
       create: (
         objectName: string,
         data: Record<string, unknown>,
       ) => Promise<ParyatechRecord>;
     },
     params: RecordSupportReceiptParams,
+    ownerId: string,
   ) {
     const policy = await transaction.findOne('crmOperatingPolicy', {
       active: true,
@@ -357,7 +430,7 @@ export class SupportCaseIntakeService {
         params.priority,
         calendar,
       ),
-      ownerId: params.ownerId,
+      ownerId,
       status: 'New',
       escalation: null,
       disposition: 'Support',
@@ -368,6 +441,30 @@ export class SupportCaseIntakeService {
       productId: params.productId ?? null,
       agreementId: params.agreementId ?? null,
     });
+  }
+
+  private async resolveCaseOwner(
+    transaction: {
+      getRequired: (objectName: string, id: string) => Promise<ParyatechRecord>;
+    },
+    params: RecordSupportReceiptParams,
+  ): Promise<string> {
+    if (params.apiKeyId === undefined) {
+      return params.actorWorkspaceMemberId;
+    }
+    if (params.agencyId === undefined) {
+      throw new ParyatechCrmException(
+        'API support intake requires an Agency with a server-owned record owner',
+        ParyatechCrmExceptionCode.PERMISSION_DENIED,
+      );
+    }
+    const agency = await transaction.getRequired('company', params.agencyId);
+
+    return requireText(agency.recordOwnerId, 'company.recordOwner');
+  }
+
+  private recordOwnerId(record: ParyatechRecord): string | null {
+    return typeof record.ownerId === 'string' ? record.ownerId : null;
   }
 
   private responseTargetAt(

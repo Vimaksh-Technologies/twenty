@@ -11,6 +11,8 @@ import {
   isNonEmptyText,
   toTransitionResult,
 } from 'src/modules/paryatech-crm/services/guarded-transition.helpers';
+import { snapshotGuardedActionState } from 'src/modules/paryatech-crm/services/guarded-action-receipt.service';
+import { PARYATECH_CRM_ACTION } from 'src/modules/paryatech-crm/types/agency-contact-control.type';
 import {
   type ClearSuppressionParams,
   PARYATECH_ROLE,
@@ -49,14 +51,31 @@ export class SuppressionClearanceService {
             ParyatechCrmExceptionCode.TRANSITION_NOT_ALLOWED,
           );
         }
+        const priorState = snapshotGuardedActionState(record);
 
-        await transaction.update(params.targetObject, params.targetId, {
-          isSuppressed: false,
-          suppressionClearedAt: params.now ?? new Date(),
-          suppressionClearanceReason: `${params.reason.trim()} Evidence: ${params.evidence.trim()}`,
-          ...(params.targetObject === 'company'
-            ? { agencyDisposition: 'Eligible' }
-            : {}),
+        const updatedRecord = await transaction.update(
+          params.targetObject,
+          params.targetId,
+          {
+            isSuppressed: false,
+            suppressionClearedAt: params.now ?? new Date(),
+            suppressionClearanceReason: `${params.reason.trim()} Evidence: ${params.evidence.trim()}`,
+            ...(params.targetObject === 'company'
+              ? { agencyDisposition: 'Eligible' }
+              : {}),
+          },
+        );
+        await transaction.appendGuardedActionReceipt({
+          action: PARYATECH_CRM_ACTION.CLEAR_SUPPRESSION,
+          actor: params,
+          reason: params.reason,
+          evidenceReference: params.evidence,
+          occurredAt: params.now ?? new Date(),
+          objectName: params.targetObject,
+          recordId: params.targetId,
+          ownerId: params.actorWorkspaceMemberId,
+          priorState,
+          resultState: snapshotGuardedActionState(updatedRecord),
         });
 
         return toTransitionResult(

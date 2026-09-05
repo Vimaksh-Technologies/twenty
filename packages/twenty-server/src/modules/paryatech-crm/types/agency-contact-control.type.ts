@@ -1,3 +1,8 @@
+import {
+  type AppendGuardedActionReceiptInput,
+  type GuardedActionIdentity,
+} from 'src/modules/paryatech-crm/types/guarded-action-receipt.type';
+
 export const PARYATECH_CRM_ACTION = {
   CLAIM_AGENCY: 'CLAIM_AGENCY',
   CLEAR_SUPPRESSION: 'CLEAR_SUPPRESSION',
@@ -72,10 +77,8 @@ export type AgencyActionResult = {
   firstEngagedAt: Date | null;
 };
 
-export type RecordOutreachOutcomeParams = {
+export type RecordOutreachOutcomeParams = GuardedActionIdentity & {
   workspaceId: string;
-  userWorkspaceId: string;
-  actorWorkspaceMemberId: string;
   agencyId: string;
   contactId?: string;
   channel: string;
@@ -171,6 +174,9 @@ export type AgencyContactControlTransaction = {
     evidence: string,
     resolvedAt: Date,
   ) => Promise<void>;
+  appendGuardedActionReceipt: (
+    receipt: AppendGuardedActionReceiptInput,
+  ) => Promise<void>;
 };
 
 export type AgencyContactControlTransactionOptions = {
@@ -181,10 +187,11 @@ export type AgencyContactControlTransactionOptions = {
 };
 
 export abstract class AgencyContactControlStore {
-  abstract getPermission(params: {
-    workspaceId: string;
-    userWorkspaceId: string;
-  }): Promise<AgencyContactControlPermission>;
+  abstract getPermission(
+    params: GuardedActionIdentity & {
+      workspaceId: string;
+    },
+  ): Promise<AgencyContactControlPermission>;
 
   abstract transact<TData>(
     options: AgencyContactControlTransactionOptions,

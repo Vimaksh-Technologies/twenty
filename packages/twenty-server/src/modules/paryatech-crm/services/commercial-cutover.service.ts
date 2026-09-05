@@ -324,6 +324,7 @@ export class CommercialCutoverService {
     sourceCommercialId: string;
     workspaceId: string;
   }): Promise<CommercialCutoverStoredAgreement | null> {
+    await this.assertAuthorized(params);
     const sourceCommercialId = stringValue(
       params.sourceCommercialId,
       'sourceCommercialId',

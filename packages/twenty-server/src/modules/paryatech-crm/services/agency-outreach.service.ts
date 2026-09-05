@@ -19,10 +19,12 @@ import {
   requiresProviderEvidenceKey,
   toPersistedOutreachOutcome,
 } from 'src/modules/paryatech-crm/services/agency-contact-control.helpers';
+import { snapshotGuardedActionState } from 'src/modules/paryatech-crm/services/guarded-action-receipt.service';
 import {
   AgencyContactControlStore,
   type AgencyActionResult,
   type AgencyContactControlTransaction,
+  PARYATECH_CRM_ACTION,
   OUTREACH_OUTCOME,
   type PersistedOutreachOutcome,
   type RecordOutreachOutcomeParams,
@@ -37,10 +39,7 @@ export class AgencyOutreachService {
   ): Promise<AgencyActionResult> {
     this.assertInput(params);
     const now = params.now ?? new Date();
-    const permission = await this.store.getPermission({
-      workspaceId: params.workspaceId,
-      userWorkspaceId: params.userWorkspaceId,
-    });
+    const permission = await this.store.getPermission(params);
 
     if (!permission.canRecordOutreach) {
       throw new ParyatechCrmException(
@@ -58,29 +57,54 @@ export class AgencyOutreachService {
       },
       async (transaction) => {
         this.assertAllowed(transaction, params, now);
+        const ownerId = transaction.agency.reservationClaimantId;
+        const priorState = snapshotGuardedActionState({
+          agency: transaction.agency,
+          outreachEvent: transaction.existingOutreach,
+        });
         await this.resumeExpiredPendingGate(transaction, params, now);
         const outreachEvent = await this.persistEvent(transaction, params);
+        let result: AgencyActionResult;
 
         if (params.outcome === OUTREACH_OUTCOME.PENDING_UNKNOWN) {
-          return this.applyPendingOutcome(
+          result = await this.applyPendingOutcome(
             transaction,
             outreachEvent.id,
             outreachEvent.eventReference,
             params,
           );
+        } else {
+          await transaction.resolvePendingException(
+            outreachEvent.id,
+            params.evidence,
+            params.occurredAt,
+          );
+          const updatedAgency = await this.applyAgencyOutcome(
+            transaction,
+            params,
+          );
+          result = this.toActionResult(updatedAgency, null);
         }
+        await transaction.appendGuardedActionReceipt({
+          action: PARYATECH_CRM_ACTION.RECORD_OUTREACH_OUTCOME,
+          actor: params,
+          reason: params.reason,
+          evidenceReference: params.evidence,
+          occurredAt: now,
+          objectName: 'company',
+          recordId: params.agencyId,
+          ownerId,
+          priorState,
+          resultState: snapshotGuardedActionState({
+            agency: result,
+            outreachEvent: {
+              ...outreachEvent,
+              pendingExpiresAt: result.pendingExpiresAt,
+            },
+          }),
+        });
 
-        await transaction.resolvePendingException(
-          outreachEvent.id,
-          params.evidence,
-          params.occurredAt,
-        );
-        const updatedAgency = await this.applyAgencyOutcome(
-          transaction,
-          params,
-        );
-
-        return this.toActionResult(updatedAgency, null);
+        return result;
       },
     );
   }
@@ -102,14 +126,7 @@ export class AgencyOutreachService {
         ParyatechCrmExceptionCode.CLAIM_NOT_ACTIVE,
       );
     }
-    if (
-      transaction.agency.reservationClaimantId !== params.actorWorkspaceMemberId
-    ) {
-      throw new ParyatechCrmException(
-        `Agency ${params.agencyId} is reserved by another operator`,
-        ParyatechCrmExceptionCode.CLAIM_OWNED_BY_ANOTHER_OPERATOR,
-      );
-    }
+    this.ownerWorkspaceMemberId(transaction, params);
 
     const pendingEvent = transaction.unresolvedPendingOutreach;
     const pendingException = transaction.unresolvedPendingException;
@@ -176,7 +193,7 @@ export class AgencyOutreachService {
         eventReference: buildEventReference(params.providerEvidenceKey),
         agencyId: params.agencyId,
         contactId: params.contactId ?? null,
-        operatorId: params.actorWorkspaceMemberId,
+        operatorId: this.ownerWorkspaceMemberId(transaction, params),
         channel: params.channel,
         initiatedAt: params.occurredAt,
         outcome: persistedOutcome,
@@ -202,7 +219,7 @@ export class AgencyOutreachService {
 
     return transaction.updateOutreachEvent(transaction.existingOutreach.id, {
       contactId: params.contactId ?? transaction.existingOutreach.contactId,
-      operatorId: params.actorWorkspaceMemberId,
+      operatorId: this.ownerWorkspaceMemberId(transaction, params),
       channel: params.channel,
       outcome: persistedOutcome,
       providerObservedAt,
@@ -236,7 +253,7 @@ export class AgencyOutreachService {
       affectedRecordId: outreachEventId,
       status: 'New',
       lastTrustedState: this.reservationSnapshot(transaction),
-      ownerId: params.actorWorkspaceMemberId,
+      ownerId: this.ownerWorkspaceMemberId(transaction, params),
       dueAt,
       escalation: null,
       evidence: params.evidence,
@@ -283,7 +300,7 @@ export class AgencyOutreachService {
         : transaction.agency.firstEngagedAt,
       recordOwnerId:
         qualifyingContact && transaction.agency.recordOwnerId === null
-          ? params.actorWorkspaceMemberId
+          ? this.ownerWorkspaceMemberId(transaction, params)
           : transaction.agency.recordOwnerId,
       agencyLifecycle:
         qualifyingContact &&
@@ -335,7 +352,8 @@ export class AgencyOutreachService {
       );
     }
     if (
-      requiresProviderEvidenceKey(params.outcome) &&
+      (params.apiKeyId !== undefined ||
+        requiresProviderEvidenceKey(params.outcome)) &&
       !isDefined(params.providerEvidenceKey)
     ) {
       throw new ParyatechCrmException(
@@ -349,6 +367,26 @@ export class AgencyOutreachService {
         ParyatechCrmExceptionCode.INVALID_OUTREACH_RECONCILIATION,
       );
     }
+  }
+
+  private ownerWorkspaceMemberId(
+    transaction: AgencyContactControlTransaction,
+    params: RecordOutreachOutcomeParams,
+  ): string {
+    const reservationClaimantId = transaction.agency.reservationClaimantId;
+
+    if (
+      !isDefined(reservationClaimantId) ||
+      (params.apiKeyId === undefined &&
+        reservationClaimantId !== params.actorWorkspaceMemberId)
+    ) {
+      throw new ParyatechCrmException(
+        `Agency ${params.agencyId} is reserved by another operator`,
+        ParyatechCrmExceptionCode.CLAIM_OWNED_BY_ANOTHER_OPERATOR,
+      );
+    }
+
+    return reservationClaimantId;
   }
 
   private assertPolicy(transaction: AgencyContactControlTransaction) {

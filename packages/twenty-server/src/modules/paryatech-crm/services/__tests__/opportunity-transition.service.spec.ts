@@ -205,6 +205,18 @@ describe('OpportunityTransitionService', () => {
 
       expect(result.state).toBe(matrixCase.to);
       expect(store.records.opportunity[0].stage).toBe(matrixCase.to);
+      expect(store.guardedActionReceipts).toEqual([
+        expect.objectContaining({
+          action: 'TRANSITION_OPPORTUNITY',
+          actorId: 'member-1',
+          priorState: expect.objectContaining({
+            stage: matrixCase.from,
+          }),
+          resultState: expect.objectContaining({
+            stage: matrixCase.to,
+          }),
+        }),
+      ]);
     },
   );
 

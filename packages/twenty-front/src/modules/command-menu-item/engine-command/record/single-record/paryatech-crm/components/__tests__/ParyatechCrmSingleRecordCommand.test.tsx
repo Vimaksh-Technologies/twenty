@@ -7,7 +7,10 @@ let actions: {
   requiresReason: true;
   requiresEvidence: true;
 }[] = [];
-const availability = jest.fn(() => ({ actions, loading: false }));
+const availability = jest.fn((_objectName: string, _recordId: string) => ({
+  actions,
+  loading: false,
+}));
 jest.mock(
   '@/command-menu-item/engine-command/hooks/useHeadlessCommandContextApi',
   () => ({
@@ -18,8 +21,10 @@ jest.mock(
   }),
 );
 jest.mock('@/paryatech-crm/hooks/useParyatechCrmActionAvailability', () => ({
-  useParyatechCrmActionAvailability: (...arguments_: unknown[]) =>
-    availability(...arguments_),
+  useParyatechCrmActionAvailability: (
+    requestedObjectName: string,
+    recordId: string,
+  ) => availability(requestedObjectName, recordId),
 }));
 jest.mock(
   '@/command-menu-item/engine-command/components/HeadlessEngineCommandWrapperEffect',

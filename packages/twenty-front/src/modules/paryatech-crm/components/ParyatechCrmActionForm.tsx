@@ -6,9 +6,9 @@ import { ParyatechCrmActionResult } from '@/paryatech-crm/components/ParyatechCr
 import { useAgencyContactOptions } from '@/paryatech-crm/hooks/useAgencyContactOptions';
 import { useExecuteParyatechCrmAction } from '@/paryatech-crm/hooks/useExecuteParyatechCrmAction';
 import { useParyatechOpportunityRelationOptions } from '@/paryatech-crm/hooks/useParyatechOpportunityRelationOptions';
+import { buildParyatechCrmActionExecution } from '@/paryatech-crm/utils/buildParyatechCrmActionExecution';
 import {
   type ParyatechCrmAction,
-  type ParyatechCrmActionInput,
   type ParyatechOutreachChannel,
   type ParyatechOutreachOutcome,
   type ParyatechCrmObjectName,
@@ -137,95 +137,34 @@ export const ParyatechCrmActionForm = ({
     setIsSubmitting(true);
     setError(null);
     setSuccessMessage(null);
-    const input: ParyatechCrmActionInput = {
-      reason,
-      evidence,
-    };
-    const providedDetails = Object.fromEntries(
-      Object.entries(details).filter(([, value]) => value.trim().length > 0),
-    );
-    Object.assign(input, providedDetails);
-    for (const amountField of [
-      'amountCollected',
-      'waivedAmount',
-      'refundedOrReversedAmount',
-    ]) {
-      if (amountField in providedDetails) {
-        Object.assign(input, {
-          [amountField]: Number(providedDetails[amountField]),
-        });
-      }
-    }
-    if ('futureFollowUp' in providedDetails) {
-      input.futureFollowUp = providedDetails.futureFollowUp === 'Yes';
-    }
-    for (const relationField of [
-      'participatingContactIds',
-      'productIds',
-      'demoAttendeeIds',
-    ] as const) {
-      if (relationField in providedDetails) {
-        input[relationField] = [providedDetails[relationField]];
-      }
-    }
-    if ('gatePassed' in providedDetails) {
-      input.gatePassed = providedDetails.gatePassed === 'Yes';
-    }
-    if (
-      action === 'CLAIM_AGENCY' ||
-      action === 'RELEASE_AGENCY' ||
-      action === 'RECORD_OUTREACH_OUTCOME'
-    ) {
-      input.agencyId = agencyId ?? recordId;
-    } else if (action === 'TRANSITION_OPPORTUNITY') {
-      input.opportunityId = recordId;
-    } else if (action === 'TRANSITION_AGREEMENT') {
-      input.agreementId = recordId;
-    } else if (action === 'RECORD_SUPPORT_RECEIPT') {
-      if (objectName === 'supportCase') {
-        input.verifiedOpenCaseId = recordId;
-      } else if (objectName === 'company') {
-        input.agencyId = recordId;
-      } else if (objectName === 'person') {
-        input.contactId = recordId;
-      }
-    } else if (
-      action === 'RECORD_SUBSTANTIVE_RESPONSE' ||
-      action === 'TRANSITION_SUPPORT_CASE'
-    ) {
-      input.supportCaseId = recordId;
-    } else if (action === 'CLEAR_SUPPRESSION') {
-      input.targetObject = objectName as 'company' | 'person';
-      input.targetId = recordId;
-    } else if (action === 'RESUME_SHARED_EXCEPTION') {
-      input.sharedExceptionId = recordId;
-    }
-
-    if (action === 'RECORD_SUBSTANTIVE_RESPONSE') {
-      input.respondedAt = new Date().toISOString();
-    }
-
-    if (isOutreach && channel !== '' && outcome !== '') {
-      Object.assign(input, {
-        channel,
-        outcome,
-        nextAction,
-        occurredAt: new Date().toISOString(),
-        ...(contactId.trim().length > 0 ? { contactId: contactId.trim() } : {}),
-        ...(providerEvidenceKey.trim().length > 0
-          ? { providerEvidenceKey: providerEvidenceKey.trim() }
-          : {}),
-      });
-    }
-
     try {
-      const mutationResult = (await execute(action, input)) as
-        | {
-            data?: Record<string, { correction?: string | null } | null> | null;
-          }
-        | undefined;
-      const correction = Object.values(mutationResult?.data ?? {})[0]
-        ?.correction;
+      const mutationResult = await execute(
+        buildParyatechCrmActionExecution({
+          action,
+          agencyId,
+          recordId,
+          objectName,
+          reason,
+          evidence,
+          details,
+          outreach: {
+            channel,
+            outcome,
+            contactId,
+            providerEvidenceKey,
+            nextAction,
+          },
+          now: new Date().toISOString(),
+        }),
+      );
+      const actionResult = Object.values(mutationResult?.data ?? {})[0];
+      const correction =
+        actionResult !== null &&
+        typeof actionResult === 'object' &&
+        'correction' in actionResult &&
+        typeof actionResult.correction === 'string'
+          ? actionResult.correction
+          : null;
       setSuccessMessage(correction ?? 'CRM record updated.');
       await onSuccess();
     } catch (caughtError) {

@@ -4,7 +4,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { PermissionFlagType } from 'twenty-shared/constants';
 import { isDefined } from 'twenty-shared/utils';
 import { In, type Repository } from 'typeorm';
-
+import { ApiKeyRoleService } from 'src/engine/core-modules/api-key/services/api-key-role.service';
+import { getWorkspaceAuthContext } from 'src/engine/core-modules/auth/storage/workspace-auth-context.storage';
 import { FieldMetadataEntity } from 'src/engine/metadata-modules/field-metadata/field-metadata.entity';
 import { ObjectMetadataEntity } from 'src/engine/metadata-modules/object-metadata/object-metadata.entity';
 import { PermissionsService } from 'src/engine/metadata-modules/permissions/permissions.service';
@@ -17,6 +18,7 @@ import {
   ParyatechCrmExceptionCode,
 } from 'src/modules/paryatech-crm/exceptions/paryatech-crm.exception';
 import { parseBusinessCalendar } from 'src/modules/paryatech-crm/services/agency-contact-control-calendar';
+import { UNRESOLVED_EXCEPTION_STATUSES } from 'src/modules/paryatech-crm/services/agency-contact-control.helpers';
 import {
   requiredNumber,
   toAgencyRecord,
@@ -30,13 +32,15 @@ import {
   REQUIRED_FIELDS_BY_OBJECT,
 } from 'src/modules/paryatech-crm/services/agency-contact-control.schema';
 import { selectPendingGateRows } from 'src/modules/paryatech-crm/services/agency-pending-gate.selector';
-import { UNRESOLVED_EXCEPTION_STATUSES } from 'src/modules/paryatech-crm/services/agency-contact-control.helpers';
+import { appendGuardedActionReceipt } from 'src/modules/paryatech-crm/services/guarded-action-receipt.service';
 import {
   type AgencyContactControlPermission,
   AgencyContactControlStore,
   type AgencyContactControlTransaction,
   type AgencyContactControlTransactionOptions,
 } from 'src/modules/paryatech-crm/types/agency-contact-control.type';
+import { type GuardedActionIdentity } from 'src/modules/paryatech-crm/types/guarded-action-receipt.type';
+import { PARYATECH_ROLE } from 'src/modules/paryatech-crm/types/paryatech-transition.type';
 
 type Schema = Record<
   (typeof PARYATECH_CRM_OBJECT_NAMES)[number],
@@ -50,6 +54,7 @@ export class TypeOrmAgencyContactControlStore extends AgencyContactControlStore 
   constructor(
     private readonly globalWorkspaceOrmManager: GlobalWorkspaceOrmManager,
     private readonly permissionsService: PermissionsService,
+    private readonly apiKeyRoleService: ApiKeyRoleService,
     @InjectRepository(ObjectMetadataEntity)
     private readonly objectMetadataRepository: Repository<ObjectMetadataEntity>,
     @InjectRepository(FieldMetadataEntity)
@@ -58,18 +63,29 @@ export class TypeOrmAgencyContactControlStore extends AgencyContactControlStore 
     super();
   }
 
-  async getPermission({
-    workspaceId,
-    userWorkspaceId,
-  }: {
-    workspaceId: string;
-    userWorkspaceId: string;
-  }): Promise<AgencyContactControlPermission> {
-    const schema = await this.resolveSchema(workspaceId);
+  async getPermission(
+    params: GuardedActionIdentity & { workspaceId: string },
+  ): Promise<AgencyContactControlPermission> {
+    if (params.apiKeyId !== undefined) {
+      const role = await this.apiKeyRoleService.getRoleDtoByApiKeyId({
+        apiKeyId: params.apiKeyId,
+        workspaceId: params.workspaceId,
+      });
+      const isCommunicationIntake =
+        role.label === PARYATECH_ROLE.COMMUNICATION_INTAKE;
+
+      return {
+        canClaim: false,
+        canRecordOutreach: isCommunicationIntake,
+        canRelease: false,
+        canTransfer: false,
+      };
+    }
+    const schema = await this.resolveSchema(params.workspaceId);
     const permissions =
       await this.permissionsService.getUserWorkspacePermissions({
-        workspaceId,
-        userWorkspaceId,
+        workspaceId: params.workspaceId,
+        userWorkspaceId: params.userWorkspaceId,
       });
     const companyPermission = permissions.objectsPermissions[schema.company.id];
     const outreachPermission =
@@ -95,7 +111,7 @@ export class TypeOrmAgencyContactControlStore extends AgencyContactControlStore 
     operation: (transaction: AgencyContactControlTransaction) => Promise<TData>,
   ): Promise<TData> {
     const schema = await this.resolveSchema(options.workspaceId);
-    const authContext = buildSystemAuthContext(options.workspaceId);
+    const authContext = getWorkspaceAuthContext();
 
     return this.globalWorkspaceOrmManager.executeInWorkspaceContext(
       async () => {
@@ -311,6 +327,12 @@ export class TypeOrmAgencyContactControlStore extends AgencyContactControlStore 
                   },
                 );
               },
+              appendGuardedActionReceipt: (receipt) =>
+                appendGuardedActionReceipt(
+                  manager,
+                  options.workspaceId,
+                  receipt,
+                ),
             };
 
             return operation(transaction);

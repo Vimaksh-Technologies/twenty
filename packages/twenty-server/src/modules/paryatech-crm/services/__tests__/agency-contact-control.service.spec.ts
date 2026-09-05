@@ -16,8 +16,17 @@ import {
   type RecordOutreachOutcomeParams,
   type SharedExceptionRecord,
 } from 'src/modules/paryatech-crm/types/agency-contact-control.type';
+import { buildGuardedActionReceipt } from 'src/modules/paryatech-crm/services/guarded-action-receipt.service';
+import {
+  type GuardedActionIdentity,
+  type GuardedActionReceipt,
+} from 'src/modules/paryatech-crm/types/guarded-action-receipt.type';
 
 const NOW = new Date('2026-09-04T10:00:00.000Z');
+type HumanRecordOutreachOutcomeParams = Extract<
+  RecordOutreachOutcomeParams,
+  { apiKeyId?: never }
+>;
 const UNRESOLVED_STATUSES = ['New', 'Investigating', 'Blocked', 'Reopened'];
 
 class InMemoryAgencyContactControlStore extends AgencyContactControlStore {
@@ -42,6 +51,11 @@ class InMemoryAgencyContactControlStore extends AgencyContactControlStore {
   ];
   outreachEvents: OutreachEventRecord[] = [];
   exceptions: SharedExceptionRecord[] = [];
+  guardedActionReceipts: GuardedActionReceipt[] = [];
+  apiKeyRoles = new Map([
+    ['communication-key', 'Paryatech Communication Intake'],
+    ['unrelated-key', 'Paryatech Operator'],
+  ]);
   permission: AgencyContactControlPermission = {
     canClaim: true,
     canRecordOutreach: true,
@@ -50,7 +64,18 @@ class InMemoryAgencyContactControlStore extends AgencyContactControlStore {
   };
   private transactionTail = Promise.resolve();
 
-  async getPermission() {
+  async getPermission(params: GuardedActionIdentity & { workspaceId: string }) {
+    if (params.apiKeyId !== undefined) {
+      return {
+        canClaim: false,
+        canRecordOutreach:
+          this.apiKeyRoles.get(params.apiKeyId) ===
+          'Paryatech Communication Intake',
+        canRelease: false,
+        canTransfer: false,
+      };
+    }
+
     return this.permission;
   }
 
@@ -172,6 +197,11 @@ class InMemoryAgencyContactControlStore extends AgencyContactControlStore {
               });
             });
         },
+        appendGuardedActionReceipt: async (receipt) => {
+          this.guardedActionReceipts.push(
+            buildGuardedActionReceipt(options.workspaceId, receipt),
+          );
+        },
       };
 
       return await operation(transaction);
@@ -227,7 +257,7 @@ const claim = (
 const recordOutcome = (
   service: AgencyContactControlService,
   outcome: RecordOutreachOutcomeParams['outcome'],
-  overrides: Partial<RecordOutreachOutcomeParams> = {},
+  overrides: Partial<HumanRecordOutreachOutcomeParams> = {},
 ) =>
   service.recordOutreachOutcome({
     workspaceId: 'workspace-1',
@@ -308,6 +338,28 @@ describe('AgencyContactControlService', () => {
     expect(store.agency.reservationClaimedAt).toEqual(NOW);
   });
 
+  it('should append an immutable receipt with reconstructable claim state', async () => {
+    await claim(service);
+
+    expect(store.guardedActionReceipts).toEqual([
+      expect.objectContaining({
+        action: 'CLAIM_AGENCY',
+        actorId: 'member-1',
+        actorType: 'HUMAN',
+        evidenceReference: 'Reviewed source batch 12',
+        occurredAt: NOW,
+        priorState: expect.objectContaining({
+          reservationStatus: null,
+        }),
+        reason: 'Shared pool prospecting',
+        resultState: expect.objectContaining({
+          reservationClaimantId: 'member-1',
+          reservationStatus: 'Claimed',
+        }),
+      }),
+    ]);
+  });
+
   it('should support claimant release, administrator transfer, and bounded expiry', async () => {
     await claim(service);
     const released = await service.releaseAgency({
@@ -335,6 +387,12 @@ describe('AgencyContactControlService', () => {
       now: NOW,
     });
     expect(transferred.reservationClaimantId).toBe('member-2');
+    expect(store.guardedActionReceipts.map(({ action }) => action)).toEqual([
+      'CLAIM_AGENCY',
+      'RELEASE_AGENCY',
+      'CLAIM_AGENCY',
+      'RELEASE_AGENCY',
+    ]);
 
     store.agency.reservationExpiresAt = new Date(NOW.getTime() - 1);
     await expect(
@@ -372,6 +430,16 @@ describe('AgencyContactControlService', () => {
     );
     expect(store.agency.firstProviderAcceptedAt).toEqual(NOW);
     expect(store.agency.firstContactedAt).toBeNull();
+    expect(store.guardedActionReceipts[1]).toMatchObject({
+      action: 'RECORD_OUTREACH_OUTCOME',
+      actorId: 'member-1',
+      ownerId: 'member-1',
+      resultState: expect.objectContaining({
+        outreachEvent: expect.objectContaining({
+          outcome: 'Provider Accepted / Completed Call',
+        }),
+      }),
+    });
   });
 
   it('should create a two-business-day Pending gate on the Event and Shared Exception', async () => {
@@ -513,6 +581,48 @@ describe('AgencyContactControlService', () => {
       });
     },
   );
+
+  it('should allow only the dedicated communication API key to record provider outreach', async () => {
+    await claim(service);
+
+    await service.recordOutreachOutcome({
+      apiKeyId: 'communication-key',
+      workspaceId: 'workspace-1',
+      agencyId: 'agency-1',
+      contactId: 'contact-1',
+      channel: 'Phone',
+      outcome: OUTREACH_OUTCOME.REACHED_CALL,
+      occurredAt: NOW,
+      providerEvidenceKey: 'provider-api-1',
+      evidence: 'Provider callback signature and payload hash.',
+      reason: 'Reconcile communication provider callback.',
+      nextAction: 'Review outcome',
+      now: NOW,
+    });
+
+    expect(store.outreachEvents[0].operatorId).toBe('member-1');
+    expect(store.guardedActionReceipts[1]).toMatchObject({
+      actorId: 'communication-key',
+      actorType: 'API_KEY',
+      ownerId: 'member-1',
+    });
+    await expect(
+      service.recordOutreachOutcome({
+        apiKeyId: 'unrelated-key',
+        workspaceId: 'workspace-1',
+        agencyId: 'agency-1',
+        contactId: 'contact-1',
+        channel: 'Phone',
+        outcome: OUTREACH_OUTCOME.REACHED_CALL,
+        occurredAt: NOW,
+        providerEvidenceKey: 'provider-api-2',
+        evidence: 'Unrelated key provider callback.',
+        reason: 'Attempt unrelated API-key mutation.',
+        nextAction: 'None',
+        now: NOW,
+      }),
+    ).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+  });
 
   it('should deny forged unavailable actions before any state change', async () => {
     store.permission = {

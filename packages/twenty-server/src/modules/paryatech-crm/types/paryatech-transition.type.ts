@@ -1,3 +1,9 @@
+import {
+  type AppendGuardedActionReceiptInput,
+  type GuardedActionIdentity,
+  type HumanGuardedActionIdentity,
+} from 'src/modules/paryatech-crm/types/guarded-action-receipt.type';
+
 export const PARYATECH_ROLE = {
   OPERATOR: 'Paryatech Operator',
   COMMERCIAL_SENSITIVE: 'Paryatech Commercial Sensitive',
@@ -5,6 +11,8 @@ export const PARYATECH_ROLE = {
   LEGAL_COMPLIANCE: 'Paryatech Legal Compliance',
   AUDIT_REVIEWER: 'Paryatech Audit Reviewer',
   RECOVERY_ADMINISTRATOR: 'Paryatech Recovery Administrator',
+  COMMUNICATION_INTAKE: 'Paryatech Communication Intake',
+  SUPPORT_INTAKE: 'Paryatech Support Intake',
 } as const;
 
 export type ParyatechRole =
@@ -63,10 +71,8 @@ export type SupportDisposition =
   | 'Withdrawn';
 export type SupportPriority = 'Urgent' | 'High' | 'Normal' | 'Low';
 
-export type GuardedActionContext = {
+export type GuardedActionContext = HumanGuardedActionIdentity & {
   workspaceId: string;
-  userWorkspaceId: string;
-  actorWorkspaceMemberId: string;
   reason: string;
   evidence: string;
   now?: Date;
@@ -126,7 +132,11 @@ export type TransitionAgreementParams = GuardedActionContext & {
   adoptionObservedAt?: Date;
 };
 
-export type RecordSupportReceiptParams = GuardedActionContext & {
+export type RecordSupportReceiptParams = GuardedActionIdentity & {
+  workspaceId: string;
+  reason: string;
+  evidence: string;
+  now?: Date;
   receiptKey: string;
   providerOrSourceId: string;
   payloadHash: string;
@@ -135,7 +145,6 @@ export type RecordSupportReceiptParams = GuardedActionContext & {
   subject: string;
   summary: string;
   priority: SupportPriority;
-  ownerId: string;
   verifiedOpenCaseId?: string;
   verifiedMatchEvidence?: string;
   agencyId?: string;
@@ -198,6 +207,9 @@ export type ParyatechTransitionTransaction = {
     id: string,
     patch: Record<string, unknown>,
   ) => Promise<ParyatechRecord>;
+  appendGuardedActionReceipt: (
+    receipt: AppendGuardedActionReceiptInput,
+  ) => Promise<void>;
 };
 
 export type ParyatechTransitionTransactionOptions = {
@@ -208,10 +220,11 @@ export type ParyatechTransitionTransactionOptions = {
 };
 
 export abstract class ParyatechTransitionStore {
-  abstract getActorRoleLabel(params: {
-    workspaceId: string;
-    userWorkspaceId: string;
-  }): Promise<string>;
+  abstract getActorRoleLabel(
+    params: GuardedActionIdentity & {
+      workspaceId: string;
+    },
+  ): Promise<string>;
 
   abstract transact<TData>(
     options: ParyatechTransitionTransactionOptions,

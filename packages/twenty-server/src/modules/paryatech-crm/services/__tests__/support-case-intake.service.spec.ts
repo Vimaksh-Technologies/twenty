@@ -25,6 +25,12 @@ const setup = () => {
         disposition: 'Support',
       },
     ],
+    company: [
+      {
+        id: 'agency-1',
+        recordOwnerId: 'member-1',
+      },
+    ],
     supportReceipt: [],
     crmOperatingPolicy: [
       {
@@ -55,7 +61,6 @@ const receiptInput = (): RecordSupportReceiptParams => ({
   subject: 'Unable to complete proposal',
   summary: 'Agency reports a proposal workflow issue.',
   priority: 'High',
-  ownerId: 'member-1',
   reason: 'Observable support receipt.',
   evidence: 'Manual phone log reference.',
   now: RECEIVED_AT,
@@ -107,6 +112,16 @@ describe('SupportCaseIntakeService', () => {
       ownerId: 'member-1',
       responseTargetAt: new Date('2026-09-04T14:00:00.000Z'),
     });
+    expect(store.guardedActionReceipts).toEqual([
+      expect.objectContaining({
+        action: 'RECORD_SUPPORT_RECEIPT',
+        actorId: 'member-1',
+        ownerId: 'member-1',
+        resultState: expect.objectContaining({
+          supportCase: expect.objectContaining({ status: 'New' }),
+        }),
+      }),
+    ]);
   });
 
   it('should attach only to a caller-verified matching open Case', async () => {
@@ -121,6 +136,47 @@ describe('SupportCaseIntakeService', () => {
     expect(result.recordId).toBe('case-open');
     expect(store.records.supportCase).toHaveLength(1);
     expect(store.records.supportReceipt[0].caseId).toBe('case-open');
+  });
+
+  it('should allow only the dedicated support API key with server-owned case ownership', async () => {
+    const { store, service } = setup();
+    const apiInput: RecordSupportReceiptParams = {
+      apiKeyId: 'support-key',
+      workspaceId: 'workspace-1',
+      receiptKey: 'Email:provider-message-1',
+      providerOrSourceId: 'provider-message-1',
+      payloadHash: 'sha256:def',
+      channel: 'Email',
+      sourceReceivedAt: RECEIVED_AT,
+      subject: 'API support receipt',
+      summary: 'Authenticated provider receipt.',
+      priority: 'Normal',
+      agencyId: 'agency-1',
+      reason: 'Observable provider support receipt.',
+      evidence: 'Verified provider signature and payload hash.',
+      now: RECEIVED_AT,
+    };
+
+    const result = await service.recordReceipt(apiInput);
+
+    expect(
+      store.records.supportCase.find(({ id }) => id === result.recordId),
+    ).toMatchObject({ ownerId: 'member-1' });
+    expect(store.guardedActionReceipts[0]).toMatchObject({
+      actorId: 'support-key',
+      actorType: 'API_KEY',
+      ownerId: 'member-1',
+    });
+    await expect(
+      service.recordReceipt({
+        ...apiInput,
+        apiKeyId: 'unrelated-key',
+        receiptKey: 'Email:provider-message-2',
+        providerOrSourceId: 'provider-message-2',
+      }),
+    ).rejects.toMatchObject({
+      code: ParyatechCrmExceptionCode.PERMISSION_DENIED,
+    });
   });
 
   it('should reject an unverified or closed Case attachment', async () => {
@@ -145,6 +201,7 @@ describe('SupportCaseIntakeService', () => {
 
     expect(replay).toMatchObject({ recordId: first.recordId, replayed: true });
     expect(store.records.supportReceipt).toHaveLength(1);
+    expect(store.guardedActionReceipts).toHaveLength(2);
   });
 
   it('should reject a receipt key that does not match its channel and source', async () => {
@@ -225,6 +282,12 @@ describe('SupportCaseIntakeService', () => {
     expect(store.records.supportCase[0].firstSubstantiveResponseAt).toEqual(
       new Date('2026-09-04T12:00:00.000Z'),
     );
+    expect(store.guardedActionReceipts).toHaveLength(2);
+    expect(store.guardedActionReceipts[0]).toMatchObject({
+      action: 'RECORD_SUBSTANTIVE_RESPONSE',
+      responseSummary:
+        'Operator explained the workaround and confirmed next steps.',
+    });
   });
 
   it('should reject a substantive response timestamp before source receipt', async () => {
@@ -259,6 +322,13 @@ describe('SupportCaseIntakeService', () => {
     expect(result.recordId).toBe('case-open');
     expect(store.records.supportCase).toHaveLength(1);
     expect(store.records.supportCase[0].status).toBe('In Progress');
+    expect(store.guardedActionReceipts).toEqual([
+      expect.objectContaining({
+        action: 'TRANSITION_SUPPORT_CASE',
+        priorState: expect.objectContaining({ status: 'Resolved' }),
+        resultState: expect.objectContaining({ status: 'In Progress' }),
+      }),
+    ]);
   });
 
   it.each([

@@ -8,10 +8,7 @@ import { RESUME_SHARED_EXCEPTION } from '@/paryatech-crm/graphql/mutations/resum
 import { TRANSITION_AGREEMENT } from '@/paryatech-crm/graphql/mutations/transitionAgreement';
 import { TRANSITION_OPPORTUNITY } from '@/paryatech-crm/graphql/mutations/transitionOpportunity';
 import { TRANSITION_SUPPORT_CASE } from '@/paryatech-crm/graphql/mutations/transitionSupportCase';
-import {
-  type ParyatechCrmAction,
-  type ParyatechCrmActionInput,
-} from '@/paryatech-crm/types/ParyatechCrmAction';
+import { type ParyatechCrmActionExecution } from '@/paryatech-crm/types/ParyatechCrmAction';
 import { useMutation } from '@apollo/client/react';
 
 export const useExecuteParyatechCrmAction = () => {
@@ -39,33 +36,42 @@ export const useExecuteParyatechCrmAction = () => {
     RESUME_SHARED_EXCEPTION,
   );
 
-  const execute = (
-    action: ParyatechCrmAction,
-    input: ParyatechCrmActionInput,
-  ) => {
-    const options = { variables: { input } };
-
-    switch (action) {
+  const execute = (execution: ParyatechCrmActionExecution) => {
+    switch (execution.action) {
       case 'CLAIM_AGENCY':
-        return claimAgency(options);
+        return claimAgency({ variables: { input: execution.input } });
       case 'RELEASE_AGENCY':
-        return releaseAgency(options);
+        return releaseAgency({ variables: { input: execution.input } });
       case 'RECORD_OUTREACH_OUTCOME':
-        return recordOutreachOutcome(options);
+        return recordOutreachOutcome({
+          variables: { input: execution.input },
+        });
       case 'TRANSITION_OPPORTUNITY':
-        return transitionOpportunity(options);
+        return transitionOpportunity({
+          variables: { input: execution.input },
+        });
       case 'TRANSITION_AGREEMENT':
-        return transitionAgreement(options);
+        return transitionAgreement({
+          variables: { input: execution.input },
+        });
       case 'RECORD_SUPPORT_RECEIPT':
-        return recordSupportReceipt(options);
+        return recordSupportReceipt({
+          variables: { input: execution.input },
+        });
       case 'CLEAR_SUPPRESSION':
-        return clearSuppression(options);
+        return clearSuppression({ variables: { input: execution.input } });
       case 'RECORD_SUBSTANTIVE_RESPONSE':
-        return recordSubstantiveResponse(options);
+        return recordSubstantiveResponse({
+          variables: { input: execution.input },
+        });
       case 'TRANSITION_SUPPORT_CASE':
-        return transitionSupportCase(options);
+        return transitionSupportCase({
+          variables: { input: execution.input },
+        });
       case 'RESUME_SHARED_EXCEPTION':
-        return resumeSharedException(options);
+        return resumeSharedException({
+          variables: { input: execution.input },
+        });
     }
   };
 

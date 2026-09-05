@@ -15,6 +15,8 @@ import {
   requireText,
   toTransitionResult,
 } from 'src/modules/paryatech-crm/services/guarded-transition.helpers';
+import { snapshotGuardedActionState } from 'src/modules/paryatech-crm/services/guarded-action-receipt.service';
+import { PARYATECH_CRM_ACTION } from 'src/modules/paryatech-crm/types/agency-contact-control.type';
 import {
   type OpportunityStage,
   PARYATECH_ROLE,
@@ -93,11 +95,27 @@ export class OpportunityTransitionService {
           params.actorWorkspaceMemberId,
           params.targetStage,
         );
+        const priorState = snapshotGuardedActionState(opportunity);
 
         const patch = await this.buildPatch(transaction, opportunity, params);
-        await transaction.update('opportunity', params.opportunityId, patch);
+        const updatedOpportunity = await transaction.update(
+          'opportunity',
+          params.opportunityId,
+          patch,
+        );
         await this.applyAgencyEffect(transaction, opportunity, params);
-
+        await transaction.appendGuardedActionReceipt({
+          action: PARYATECH_CRM_ACTION.TRANSITION_OPPORTUNITY,
+          actor: params,
+          reason: params.reason,
+          evidenceReference: params.evidence,
+          occurredAt: params.now ?? new Date(),
+          objectName: 'opportunity',
+          recordId: params.opportunityId,
+          ownerId: params.actorWorkspaceMemberId,
+          priorState,
+          resultState: snapshotGuardedActionState(updatedOpportunity),
+        });
         return toTransitionResult(
           params.opportunityId,
           'opportunity',

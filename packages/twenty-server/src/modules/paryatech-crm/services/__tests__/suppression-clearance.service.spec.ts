@@ -65,6 +65,13 @@ describe('SuppressionClearanceService', () => {
         suppressionClearanceReason:
           'Verified renewed outreach consent. Evidence: Retained legal review reference LC-1.',
       });
+      expect(store.guardedActionReceipts).toEqual([
+        expect.objectContaining({
+          action: 'CLEAR_SUPPRESSION',
+          priorState: expect.objectContaining({ isSuppressed: true }),
+          resultState: expect.objectContaining({ isSuppressed: false }),
+        }),
+      ]);
     },
   );
 

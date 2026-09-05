@@ -8,6 +8,7 @@ import {
 } from 'src/modules/paryatech-crm/exceptions/paryatech-crm.exception';
 import { AgencyOutreachService } from 'src/modules/paryatech-crm/services/agency-outreach.service';
 import { addBusinessMinutes } from 'src/modules/paryatech-crm/services/agency-contact-control-calendar';
+import { snapshotGuardedActionState } from 'src/modules/paryatech-crm/services/guarded-action-receipt.service';
 import {
   AgencyContactControlStore,
   type AgencyActionResult,
@@ -40,6 +41,7 @@ export class AgencyContactControlService {
     const permission = await this.store.getPermission({
       workspaceId,
       userWorkspaceId,
+      actorWorkspaceMemberId,
     });
 
     return this.store.transact(
@@ -97,6 +99,7 @@ export class AgencyContactControlService {
     const permission = await this.store.getPermission({
       workspaceId,
       userWorkspaceId,
+      actorWorkspaceMemberId,
     });
 
     if (!permission.canClaim) {
@@ -126,6 +129,8 @@ export class AgencyContactControlService {
         }
         this.assertReservationPolicy(transaction);
 
+        const priorState = snapshotGuardedActionState(transaction.agency);
+
         await transaction.updateAgency({
           reservationStatus: 'Claimed',
           reservationClaimantId: actorWorkspaceMemberId,
@@ -138,7 +143,21 @@ export class AgencyContactControlService {
           reservationReleaseReason: null,
         });
 
-        return this.toActionResult(transaction);
+        const result = this.toActionResult(transaction);
+        await transaction.appendGuardedActionReceipt({
+          action: PARYATECH_CRM_ACTION.CLAIM_AGENCY,
+          actor: { userWorkspaceId, actorWorkspaceMemberId },
+          reason,
+          evidenceReference: evidence,
+          occurredAt: now,
+          objectName: 'company',
+          recordId: agencyId,
+          ownerId: actorWorkspaceMemberId,
+          priorState,
+          resultState: snapshotGuardedActionState(transaction.agency),
+        });
+
+        return result;
       },
     );
   }
@@ -166,6 +185,7 @@ export class AgencyContactControlService {
     const permission = await this.store.getPermission({
       workspaceId,
       userWorkspaceId,
+      actorWorkspaceMemberId,
     });
 
     if (!permission.canRelease) {
@@ -200,6 +220,7 @@ export class AgencyContactControlService {
           );
         }
         this.assertReservationPolicy(transaction);
+        const priorState = snapshotGuardedActionState(transaction.agency);
 
         await transaction.updateAgency(
           isDefined(transferToWorkspaceMemberId)
@@ -222,7 +243,23 @@ export class AgencyContactControlService {
               },
         );
 
-        return this.toActionResult(transaction);
+        const result = this.toActionResult(transaction);
+        await transaction.appendGuardedActionReceipt({
+          action: PARYATECH_CRM_ACTION.RELEASE_AGENCY,
+          actor: { userWorkspaceId, actorWorkspaceMemberId },
+          reason,
+          evidenceReference: evidence,
+          occurredAt: now,
+          objectName: 'company',
+          recordId: agencyId,
+          ownerId:
+            transferToWorkspaceMemberId ??
+            transaction.agency.reservationClaimantId,
+          priorState,
+          resultState: snapshotGuardedActionState(transaction.agency),
+        });
+
+        return result;
       },
     );
   }
