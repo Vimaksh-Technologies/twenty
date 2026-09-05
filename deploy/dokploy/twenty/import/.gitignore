@@ -1,0 +1,9 @@
+*
+!.gitignore
+!package.json
+!tsconfig.json
+!vitest.config.ts
+!yarn.lock
+!*.ts
+!__tests__/
+!__tests__/*.ts

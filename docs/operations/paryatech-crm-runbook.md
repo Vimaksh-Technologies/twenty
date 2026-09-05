@@ -1,8 +1,8 @@
 # Paryatech CRM workspace runbook
 
-**Status:** U1–U3 manual-configuration contract. This document defines reproducible
-metadata, identity, permission, and native operating-surface recipes; it does not
-authorize or record a live production change.
+**Status:** U1–U4 operating contract. This document defines reproducible metadata,
+identity, permission, native operating-surface, and reviewed-import procedures; it
+does not authorize or record a live production change.
 
 ## Scope and safety boundary
 
@@ -17,8 +17,8 @@ authorize or record a live production change.
   recreating or verifying this recipe.
 - U1 creates metadata and records policy decisions. U2 defines identities, roles,
   protected fields, recovery, and verification. U3 defines native views, dashboards,
-  Tasks, Notes, reminders, and daily procedures. Import is U4; guarded mutations are
-  U5/U6; mailbox synchronization is U8.
+  Tasks, Notes, reminders, and daily procedures. U4 prepares, reviews, applies, and
+  reconciles an import. Guarded mutations are U5/U6; mailbox synchronization is U8.
 
 ## Naming and requiredness conventions
 
@@ -1142,6 +1142,196 @@ record content after the smoke.
    scrubbed incident evidence, U2 permission re-probe, and Audit Reviewer sign-off
    before resharing.
 
+## U4 reviewed import contract
+
+U4 is a human-reviewed, API-only data import. It must run only after the U1 metadata,
+U2 import identity, and U3 operating surfaces reproduce in the target disposable
+workspace. The code under `deploy/dokploy/twenty/import/` is the canonical local
+implementation. It never authorizes a native Twenty CSV import, direct database
+write, automatic identity merge, or production change.
+
+### Data custody and admission
+
+1. Create a batch-specific directory below `<encrypted-import-root>`. Verify the
+   backing volume encryption outside the tool and record only the scrubbed evidence
+   hash in the protected change record.
+2. Copy exactly one `.csv` or `.xlsx` source into that directory without changing its
+   contents, set its mode to `0600`, and deny directory access to other users. Never
+   place the source or generated artifacts under Git.
+3. `prepareImport` rejects non-regular files, modes other than `0600`, unsupported
+   extensions, mismatched signatures, oversized files, excessive ZIP entries or
+   expansion, excessive sheets/rows/cells, and oversized cell values.
+4. CSV must be valid UTF-8. XLSX must be an Office Open XML ZIP containing a valid
+   workbook and worksheet relationship. Reject macros, VBA, ActiveX, OLE/embedded
+   objects, macro sheets, connections, external-link parts, external relationship
+   targets, encrypted ZIP entries, unsafe archive paths, DTDs, and XML entities.
+5. Formula cells remain inert text prefixed with an apostrophe in the prepared
+   display value. The importer never evaluates a formula. XLSX number formats retain
+   significant leading zeros for phone and postcode review.
+6. Preparation records source-file, dataset, row, and original-cell SHA-256 hashes;
+   source batch, sheet, row, column, original type, and safe display value remain
+   available as provenance. Re-running the same source with the same batch and limits
+   must produce the same prepared dataset and hash.
+
+The default hard limits are part of the executable contract. A lowered approved
+limit may be supplied for a batch; a higher limit requires a reviewed code change,
+not an operator override.
+
+### Normalization and candidate review
+
+Normalize only comparison values. Preserve the prepared value and hashes as
+provenance:
+
+- Unicode strings use NFC and collapsed Unicode whitespace.
+- Names use Unicode case-folding after whitespace normalization.
+- Email addresses lowercase the local part and convert the domain to ASCII IDN.
+- Domains discard a URL path, credentials, query, fragment, and trailing dot before
+  ASCII IDN conversion.
+- Phones retain an optional leading `+` and digits only; no country is inferred.
+- Postcodes uppercase and remove whitespace; no geography is inferred.
+
+Candidate matching is deterministic and multi-signal across normalized domain,
+email, phone, postcode, and name. Exact domain, email, and phone signals carry more
+weight than postcode or name. Candidate ID is the stable tie-breaker. The matcher
+returns `review`, `ambiguous`, or `no-candidate`, always with
+`requiredDecision: true`; it never selects or merges a record.
+
+Every prepared row must have exactly one recorded decision and non-empty evidence:
+
+| Decision | Candidate | Apply behavior |
+| --- | --- | --- |
+| `Confirm Existing Agency` | Required | Target that reviewed Agency record. |
+| `Create New Agency` | Forbidden | Create/upsert only by the approved stable external key. |
+| `Reject Match` | Required | Apply no API operation for the row. |
+| `Keep Separate Contacts` | Required | Target that Agency while retaining distinct approved Contact keys. |
+| `Quarantine with Reason` | Forbidden | Apply nothing; retain the reason for remediation. |
+
+A decided or quarantined row may reopen before apply. Reopening clears the active
+decision while retaining hashed reviewer/evidence history and increments its
+revision. An applied row cannot reopen. The approved plan is valid only when its
+strict schema, decision state, candidate rule, source type, permitted payload fields,
+prepared-dataset hash, and canonical plan hash all validate. Unknown fields fail
+closed, including Opportunity, owner, reservation, lifecycle, disposition, outreach,
+and contact-metric fields.
+
+### Approved API apply
+
+The executable adapter in `import-approved.ts` uses the Twenty GraphQL endpoint at
+`TWENTY_BASE_URL` and reads the temporary ID-IMP key only from `TWENTY_API_KEY`.
+Never pass a key on the command line or write it to an artifact. The adapter finds a
+record by its stable external key before create/update and sends the same SHA-256
+idempotency key on every retry. `Confirm Existing Agency` and `Keep Separate
+Contacts` reuse the reviewed candidate ID without updating Agency name, domain, or
+external key; apply adds only the approved Source and Contact relations.
+
+Apply the validated plan globally in this exact order:
+
+1. deduplicated Acquisition Sources;
+2. deduplicated Companies/Agencies;
+3. deduplicated People/Agency Contacts;
+4. Company `originalAcquisitionSource` relations; and
+5. Person-to-Company relations.
+
+The same external key with conflicting approved payloads or conflicting reviewed
+candidates fails closed. `Reject Match` and `Quarantine with Reason` rows never reach
+the adapter. A retryable API failure may retry at most the configured one-to-five
+attempts with the identical idempotency key. All other failures stop immediately.
+After each successful operation, save a `0600` checkpoint keyed by plan hash. A
+restart validates the checkpoint identity and skips only completed idempotency keys.
+
+Before linking a Company to its approved Source, read its current
+`originalAcquisitionSource`. An empty value may be linked, and the same Source is an
+idempotent no-op. A different existing Source is never overwritten: fail closed and
+route the field conflict for review.
+
+Apply output contains deterministic counts and hashes plus a rollback manifest. The
+manifest identifies each API result, whether it was created, and whether rollback
+must delete that created record or restore a reviewed pre-import snapshot. It does
+not itself grant deletion authority. Logs contain hashes, counts, phase names, and
+error classes only; never source values, names, emails, phones, postcodes, tokens, or
+API response bodies.
+
+After API work, the process deletes `TWENTY_API_KEY` from its environment reference
+and releases its in-memory token reference on both success and failure. This is not
+key revocation. The apply command writes a `pending` result and exits 2. An
+Administrator must revoke the ID-IMP key out of band, prove the revoked key is denied,
+and provide a matching `0600` attestation containing only the plan hash, key
+fingerprint, revocation time, and evidence hash. The `attest:revocation` command
+changes the result to `verified`; reconciliation rejects a pending result. The tool
+never grants itself revocation privileges and never executes a shell command.
+
+### Reconciliation and rollback gate
+
+After apply, obtain a minimal API snapshot for the batch containing only batch,
+prepared-dataset and plan hashes; Source, Company, and Person external keys; Company-
+to-original-Acquisition-Source keys; Person-to-Company relation keys; and aggregate
+counts. Pass it with the approved plan and apply result to `reconcileImport`.
+
+Reconciliation fails closed on:
+
+- batch, prepared-dataset, or plan hash mismatch;
+- Source, Company, Person, Company-source relation, or Person-company relation count
+  mismatch;
+- missing or unexpected external keys or either relation key; or
+- apply-result counts inconsistent with either the plan or the API snapshot.
+
+The report records exact decision counts for all five decisions, discrepancy kinds,
+and deterministic hash-only samples. A repeated reconciliation over the same inputs
+must have the same report hash. Do not begin outreach, create Opportunities, assign
+owners, claim reservations, or count Contacted/Engaged until the report is
+`reconciled`.
+
+On any discrepancy, freeze dependent work, revoke the import key, preserve the source,
+approved plan, checkpoint, apply result, rollback manifest, and reconciliation report
+under the encrypted batch directory, and open an owned Shared Exception. Execute a
+rollback only through a separately approved recovery change: process Person-company
+and Company-source relations before People, Companies, and Sources; delete only
+records marked `created: true`; restore reviewed snapshots for pre-existing records;
+and reconcile again. Never infer a rollback from row order or delete
+quarantined/rejected source evidence.
+
+### U4 execution evidence
+
+Keep the following outside Git in the protected change record: Twenty version,
+workspace ID, batch ID hash, source-file and prepared-dataset hashes, approved plan
+hash, reviewer/revision evidence, temporary-key issue and revocation times, adapter
+version hash, checkpoint and apply hashes, rollback-manifest hash, reconciliation
+hash/status/counts, exception references, and operator timestamps. Store no source
+rows, raw identifiers, credentials, or API bodies in that record.
+
+Run all commands from the repository root under Node 24.5 or newer. The package is a
+standalone Yarn project; the repository-pinned Yarn executable avoids reliance on a
+global Yarn installation:
+
+1. Prepare a deterministic review artifact:
+   `node .yarn/releases/yarn-4.13.0.cjs --cwd deploy/dokploy/twenty/import prepare:import --source <encrypted-import-root>/<batch>/source.csv --batch-id <batch> --candidates <encrypted-import-root>/<batch>/candidate-snapshot.json --output <encrypted-import-root>/<batch>/prepared-review.json`
+2. After human review, create a strict decision-input artifact with batch ID,
+   prepared-dataset hash, and rows containing only row hash, exact decision,
+   candidate ID when required, reason, reviewer ID, and the permitted Source,
+   Company, and Person payload. Seal it:
+   `node .yarn/releases/yarn-4.13.0.cjs --cwd deploy/dokploy/twenty/import seal:import --decision-input <encrypted-import-root>/<batch>/decision-input.json --approved <encrypted-import-root>/<batch>/approved.json`
+3. Set `TWENTY_BASE_URL` to the approved HTTPS Twenty origin and
+   `TWENTY_API_KEY` to a newly issued temporary ID-IMP key in the environment, then
+   run:
+   `node .yarn/releases/yarn-4.13.0.cjs --cwd deploy/dokploy/twenty/import apply:import --approved <encrypted-import-root>/<batch>/approved.json --checkpoint <encrypted-import-root>/<batch>/checkpoint.json --result <encrypted-import-root>/<batch>/apply-result.json --rollback <encrypted-import-root>/<batch>/rollback.json`.
+   Exit 2 means API apply completed but the revocation gate remains pending; exit 1
+   is failure. Resume with the same plan and paths only.
+4. Revoke and denial-test the key out of band. Write the matching Administrator
+   attestation, then run:
+   `node .yarn/releases/yarn-4.13.0.cjs --cwd deploy/dokploy/twenty/import attest:revocation --result <encrypted-import-root>/<batch>/apply-result.json --attestation <encrypted-import-root>/<batch>/revocation-attestation.json`
+5. Obtain the minimal observed workspace snapshot and reconcile:
+   `node .yarn/releases/yarn-4.13.0.cjs --cwd deploy/dokploy/twenty/import reconcile:import --approved <encrypted-import-root>/<batch>/approved.json --apply-result <encrypted-import-root>/<batch>/apply-result.json --snapshot <encrypted-import-root>/<batch>/workspace-snapshot.json --output <encrypted-import-root>/<batch>/reconciliation.json`.
+   Exit 0 means reconciled, exit 2 means deterministic mismatch, and exit 1 means
+   invalid input or execution failure.
+6. Verify code:
+   `node .yarn/releases/yarn-4.13.0.cjs --cwd deploy/dokploy/twenty/import test`;
+   `node .yarn/releases/yarn-4.13.0.cjs --cwd deploy/dokploy/twenty/import typecheck`;
+   `git diff --check -- deploy/dokploy/twenty/import docs/operations/paryatech-crm-runbook.md`.
+
+Every source, candidate snapshot, review, decision, approved plan, checkpoint, apply
+result, rollback manifest, attestation, observed snapshot, and reconciliation report
+must be a regular `0600` file outside Git. Every generated file is written atomically.
+
 ## Metadata creation recipe
 
 Perform only in a disposable v2.27 workspace until the verification section passes.
@@ -1210,7 +1400,7 @@ The comparison evidence records Twenty version, workspace ID, operator, timestam
 baseline export hash, configured export hash, pass/fail per inventory section, and
 rollback result in the protected change record. Do not commit those values.
 
-## Verification and no-test exception
+## Verification and U1–U3 no-test exception
 
 **No-test exception:** U1–U3 change documentation and manual Twenty Settings recipes
 only; they change no executable behavior. Application tests would not prove a
@@ -1260,12 +1450,23 @@ checks and the later disposable-workspace browser smoke are the replacement evid
     populated/empty/loading/denied/error and keyboard/focus paths, exact synthetic
     outreach/support/attribution/visibility/capacity totals, configuration order, and
     reverse rollback are present.
-11. Content safety scan: no absolute local paths, credential values, tokens, cookies,
+11. U4 executable check: focused Vitest coverage passes for CSV/XLSX preparation,
+    active-content/limit rejection, deterministic normalization and candidate review,
+    every decision/state transition, strict plan validation, reviewed-existing
+    targeting, ordered apply, checkpoint resume, retry, key revocation, rollback
+    output, reconciliation mismatches, redacted logs, and deterministic hashes;
+    standalone TypeScript checking also passes.
+12. U4 custody and procedure check: encrypted `0600` source admission, Git exclusion,
+    exact decisions, no automatic merge, strict authority boundary, Source→Company→
+    Person→Company-source→Person-company order, rollback approval, hash-only evidence,
+    and the post-revocation denial check are present.
+13. Content safety scan: no absolute local paths, credential values, tokens, cookies,
     MFA factors/recovery material, real email addresses, real phone numbers, raw
     source/customer rows, message bodies, attachments, or raw probe responses.
 
-U1–U3 documentation is complete only when these deterministic checks pass.
-Configured U2 evidence still requires BP01–BP18/AP01–AP18, and configured U3 evidence
+U1–U4 implementation is complete only when these deterministic checks pass.
+Configured U2 evidence still requires BP01–BP18/AP01–AP18, configured U3 evidence
 requires every allowed role to run the disposable desktop-browser smoke against the
-exact fixture totals. Neither is claimed by this docs-only change. Live configuration
-remains a separate approved manual change.
+exact fixture totals, and a U4 import requires a reconciled disposable run plus
+separate live-change approval. None of those live/configured outcomes is claimed by
+this repository change.
