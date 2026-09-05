@@ -20,6 +20,9 @@ export type Message = Omit<
 > & {
   attachments: {
     filename: string;
+    id?: string;
+    mimeType?: string;
+    size?: number;
   }[];
   externalId: string;
   messageThreadExternalId: string;

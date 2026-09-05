@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import { EmailThreadMessageBody } from '@/activities/emails/components/EmailThreadMessageBody';
 import { EmailThreadMessageBodyPreview } from '@/activities/emails/components/EmailThreadMessageBodyPreview';
+import { EmailThreadMessageAttachments } from '@/activities/emails/components/EmailThreadMessageAttachments';
 import { EmailThreadMessageLayout } from '@/activities/emails/components/EmailThreadMessageLayout';
 import { EmailThreadMessageReceivers } from '@/activities/emails/components/EmailThreadMessageReceivers';
 import { EmailThreadMessageSender } from '@/activities/emails/components/EmailThreadMessageSender';
@@ -89,7 +90,10 @@ export const EmailThreadMessage = ({
       ) : isDraft || !isOpen ? (
         <EmailThreadMessageBodyPreview body={message.text} />
       ) : (
-        <EmailThreadMessageBody body={message.text} isDisplayed />
+        <>
+          <EmailThreadMessageBody body={message.text} isDisplayed />
+          <EmailThreadMessageAttachments messageId={message.id} />
+        </>
       )}
     </EmailThreadMessageLayout>
   );

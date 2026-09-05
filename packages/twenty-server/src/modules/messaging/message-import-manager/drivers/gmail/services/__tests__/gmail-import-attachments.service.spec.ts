@@ -157,6 +157,7 @@ describe('GmailImportAttachmentsService', () => {
       {
         providerAttachmentId: 'provider-attachment-id',
         messageId: 'message-id',
+        safetyState: 'ACCEPTED',
       },
     ]);
 
@@ -355,11 +356,26 @@ describe('GmailImportAttachmentsService', () => {
     }
   });
 
-  it('should retry safely with the same internal and provider identifiers after storage failure', async () => {
+  it('should retain retryable metadata with deterministic identifiers after storage failure', async () => {
     fileWrite.mockRejectedValueOnce(new Error('R2 unavailable'));
+    repositoryFind.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        providerAttachmentId: 'provider-attachment-id',
+        messageId: 'message-id',
+        safetyState: 'IMPORTING',
+      },
+    ]);
 
     await expect(importAttachments()).rejects.toThrow('R2 unavailable');
-    expect(repositoryUpsert).not.toHaveBeenCalled();
+    expect(repositoryUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerAttachmentId: 'provider-attachment-id',
+        fileId: null,
+        safetyState: 'IMPORTING',
+        messageId: 'message-id',
+      }),
+      ['id'],
+    );
 
     await expect(importAttachments()).resolves.toEqual({
       imported: 1,
@@ -377,6 +393,7 @@ describe('GmailImportAttachmentsService', () => {
         id: expect.any(String),
         providerAttachmentId: 'provider-attachment-id',
         fileId: retryWrite.fileId,
+        safetyState: 'ACCEPTED',
       }),
       ['id'],
     );

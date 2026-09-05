@@ -204,4 +204,27 @@ describe('Gmail attachment validation', () => {
       }),
     );
   });
+
+  it('should quarantine quoted or BOM-prefixed CSV formulas as active', async () => {
+    const maliciousContent = Buffer.from(
+      '\uFEFFname,value\nAlice,"=HYPERLINK(""https://evil.example"")"',
+    );
+
+    await expect(
+      validateGmailAttachment({
+        attachment: {
+          filename: 'contacts.csv',
+          id: 'attachment-id',
+          mimeType: 'text/csv',
+          size: maliciousContent.length,
+        },
+        content: maliciousContent,
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        safetyState: 'QUARANTINED',
+        quarantineReason: 'ACTIVE_CONTENT',
+      }),
+    );
+  });
 });

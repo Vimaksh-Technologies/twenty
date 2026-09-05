@@ -9,6 +9,7 @@ import { buildSystemAuthContext } from 'src/engine/twenty-orm/utils/build-system
 import { MessageChannelMessageAssociationWorkspaceEntity } from 'src/modules/messaging/common/standard-objects/message-channel-message-association.workspace-entity';
 import { type MessageThreadWorkspaceEntity } from 'src/modules/messaging/common/standard-objects/message-thread.workspace-entity';
 import { type MessageWorkspaceEntity } from 'src/modules/messaging/common/standard-objects/message.workspace-entity';
+import { MessageAttachmentCleanupService } from 'src/modules/messaging/message-attachment-access/services/message-attachment-cleanup.service';
 import { deleteUsingPagination } from 'src/modules/messaging/message-cleaner/utils/delete-using-pagination.util';
 
 @Injectable()
@@ -16,6 +17,7 @@ export class MessagingMessageCleanerService {
   private readonly logger = new Logger(MessagingMessageCleanerService.name);
   constructor(
     private readonly globalWorkspaceOrmManager: GlobalWorkspaceOrmManager,
+    private readonly messageAttachmentCleanupService: MessageAttachmentCleanupService,
   ) {}
 
   async deleteMessagesChannelMessageAssociationsAndRelatedOrphans({
@@ -93,6 +95,12 @@ export class MessagingMessageCleanerService {
             `WorkspaceId: ${workspaceId} Deleting ${orphanMessages.length} orphan messages`,
           );
 
+          await this.messageAttachmentCleanupService.deleteOrphanedMessageAttachments(
+            {
+              workspaceId,
+              messageIds: orphanMessages.map(({ id }) => id),
+            },
+          );
           await messageRepository.delete(orphanMessages.map(({ id }) => id));
 
           const orphanMessageThreads = await messageThreadRepository.find({
@@ -244,6 +252,12 @@ export class MessagingMessageCleanerService {
               ) => {
                 this.logger.debug(
                   `WorkspaceId: ${workspaceId} Deleting ${ids.length} messages from message cleaner`,
+                );
+                await this.messageAttachmentCleanupService.deleteOrphanedMessageAttachments(
+                  {
+                    workspaceId,
+                    messageIds: ids,
+                  },
                 );
                 await messageRepository.delete(ids, transactionManager);
               },

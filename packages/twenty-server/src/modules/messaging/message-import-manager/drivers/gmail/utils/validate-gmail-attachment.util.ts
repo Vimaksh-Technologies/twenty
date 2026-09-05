@@ -124,7 +124,9 @@ const containsActiveContent = (extension: string, content: Buffer): boolean => {
   }
 
   if (extension === '.csv') {
-    return /(?:^|[\r\n,;])\s*[=+\-@]/u.test(content.toString('utf8'));
+    return /(?:^|[\r\n,;])[\s\uFEFF]*["']?[\s\uFEFF]*[=+\-@]/u.test(
+      content.toString('utf8'),
+    );
   }
 
   return false;

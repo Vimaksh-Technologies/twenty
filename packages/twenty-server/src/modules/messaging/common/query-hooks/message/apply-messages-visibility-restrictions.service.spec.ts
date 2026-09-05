@@ -26,6 +26,7 @@ const createMockMessage = (
   messageThread: null,
   messageChannelMessageAssociations: [],
   messageParticipants: [],
+  attachments: [],
   messageCampaign: null,
   messageCampaignId: null,
   deliveryStatus: null,

@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common';
+import { google } from 'googleapis';
 
 import {
   FieldActorSource,
   MessageChannelContactAutoCreationPolicy,
   MessageParticipantRole,
+  ConnectedAccountProvider,
 } from 'twenty-shared/types';
 import { isDefined } from 'twenty-shared/utils';
 
@@ -19,6 +21,9 @@ import {
   CreateCompanyAndContactJob,
   type CreateCompanyAndContactJobData,
 } from 'src/modules/contact-creation-manager/jobs/create-company-and-contact.job';
+import { GoogleOAuth2ClientProvider } from 'src/modules/connected-account/oauth2-client-manager/drivers/google/google-oauth2-client.provider';
+import { GmailImportAttachmentsService } from 'src/modules/messaging/message-import-manager/drivers/gmail/services/gmail-import-attachments.service';
+import { type GmailAttachmentReference } from 'src/modules/messaging/message-import-manager/drivers/gmail/utils/get-attachment-data.util';
 import {
   type Participant,
   type ParticipantWithMessageId,
@@ -33,6 +38,13 @@ import { isGroupEmail } from 'src/modules/messaging/message-import-manager/utils
 import { MessagingMessageParticipantService } from 'src/modules/messaging/message-participant-manager/services/messaging-message-participant.service';
 import { isWorkEmail } from 'src/utils/is-work-email';
 
+const isGmailAttachmentReference = (
+  attachment: MessageWithParticipants['attachments'][number],
+): attachment is GmailAttachmentReference =>
+  typeof attachment.id === 'string' &&
+  typeof attachment.mimeType === 'string' &&
+  typeof attachment.size === 'number';
+
 @Injectable()
 export class MessagingSaveMessagesAndEnqueueContactCreationService {
   constructor(
@@ -42,6 +54,8 @@ export class MessagingSaveMessagesAndEnqueueContactCreationService {
     private readonly messageParticipantService: MessagingMessageParticipantService,
     private readonly messageFolderAssociationService: MessagingMessageFolderAssociationService,
     private readonly globalWorkspaceOrmManager: GlobalWorkspaceOrmManager,
+    private readonly gmailImportAttachmentsService: GmailImportAttachmentsService,
+    private readonly googleOAuth2ClientProvider: GoogleOAuth2ClientProvider,
   ) {}
 
   async saveMessagesAndEnqueueContactCreation(
@@ -180,6 +194,51 @@ export class MessagingSaveMessagesAndEnqueueContactCreationService {
         { lite: true },
       );
 
+    if (!isDefined(savedMessagesResult)) {
+      return undefined;
+    }
+
+    const messagesWithAttachments = messagesToSave.flatMap((message) => {
+      const attachments = message.attachments.filter(
+        isGmailAttachmentReference,
+      );
+      const messageId = savedMessagesResult.messageExternalIdsAndIdsMap.get(
+        message.externalId,
+      );
+
+      if (attachments.length === 0 || !isDefined(messageId)) {
+        return [];
+      }
+
+      return [
+        {
+          messageId,
+          providerMessageId: message.externalId,
+          attachments,
+        },
+      ];
+    });
+
+    if (
+      connectedAccount.provider === ConnectedAccountProvider.GOOGLE &&
+      messagesWithAttachments.length > 0
+    ) {
+      const oAuth2Client = await this.googleOAuth2ClientProvider.getClient(
+        connectedAccount.id,
+      );
+      const gmailClient = google.gmail({
+        version: 'v1',
+        auth: oAuth2Client,
+      });
+
+      await this.gmailImportAttachmentsService.importAttachments({
+        gmailClient,
+        connectedAccountId: connectedAccount.id,
+        workspaceId,
+        messages: messagesWithAttachments,
+      });
+    }
+
     if (messageChannel.isContactAutoCreationEnabled && savedMessagesResult) {
       const contactsToCreate =
         savedMessagesResult.participantsWithMessageId.filter(
@@ -195,10 +254,6 @@ export class MessagingSaveMessagesAndEnqueueContactCreationService {
           source: FieldActorSource.EMAIL,
         },
       );
-    }
-
-    if (!isDefined(savedMessagesResult)) {
-      return undefined;
     }
 
     return {

@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 
 import { type gmail_v1 as gmailV1 } from 'googleapis';
 import { TWENTY_STANDARD_APPLICATION_UNIVERSAL_IDENTIFIER } from 'twenty-shared/application';
-import { type FileFolder } from 'twenty-shared/types';
+import { FileFolder } from 'twenty-shared/types';
 import { In } from 'typeorm';
 import { v5 } from 'uuid';
 
@@ -19,7 +19,6 @@ import {
 export const GMAIL_ATTACHMENT_MAX_MESSAGE_SIZE_BYTES = 20 * 1024 * 1024;
 export const GMAIL_ATTACHMENT_MAX_AGGREGATE_SIZE_BYTES = 50 * 1024 * 1024;
 
-const MESSAGE_ATTACHMENT_FILE_FOLDER = 'message-attachment' as FileFolder;
 const GMAIL_ATTACHMENT_ID_NAMESPACE = '71d95ddb-a750-437d-bc66-1b31a73e0cfb';
 
 type MessageAttachmentsToImport = {
@@ -128,13 +127,18 @@ export class GmailImportAttachmentsService {
           },
         });
         const existingAttachmentKeys = new Set(
-          existingAttachments.map((existingAttachment) =>
-            candidateKey({
-              messageId: existingAttachment.messageId ?? '',
-              providerAttachmentId:
-                existingAttachment.providerAttachmentId ?? '',
-            }),
-          ),
+          existingAttachments
+            .filter(
+              (existingAttachment) =>
+                existingAttachment.safetyState !== 'IMPORTING',
+            )
+            .map((existingAttachment) =>
+              candidateKey({
+                messageId: existingAttachment.messageId ?? '',
+                providerAttachmentId:
+                  existingAttachment.providerAttachmentId ?? '',
+              }),
+            ),
         );
         const pendingCandidates = candidates.filter(
           (candidate) =>
@@ -285,15 +289,30 @@ export class GmailImportAttachmentsService {
             }
           }
 
-          const isAccepted =
-            candidate.validation.safetyState === 'ACCEPTED' &&
-            content !== undefined;
+          let acceptedFileId: string | null = null;
 
-          if (isAccepted) {
+          if (
+            candidate.validation.safetyState === 'ACCEPTED' &&
+            content !== undefined
+          ) {
+            await attachmentRepository.upsert(
+              {
+                id: candidate.attachmentId,
+                name: candidate.validation.sanitizedFilename,
+                providerAttachmentId: candidate.attachment.id,
+                fileId: null,
+                mimeType: candidate.validation.mimeType,
+                size: candidate.validation.size,
+                safetyState: 'IMPORTING',
+                quarantineReason: null,
+                messageId: candidate.messageId,
+              },
+              ['id'],
+            );
             await this.fileStorageService.writeFile({
               sourceFile: content,
               resourcePath: `${candidate.messageId}/${candidate.attachmentId}/${candidate.validation.sanitizedFilename}`,
-              fileFolder: MESSAGE_ATTACHMENT_FILE_FOLDER,
+              fileFolder: FileFolder.MessageAttachment,
               applicationUniversalIdentifier:
                 TWENTY_STANDARD_APPLICATION_UNIVERSAL_IDENTIFIER,
               workspaceId,
@@ -303,6 +322,7 @@ export class GmailImportAttachmentsService {
                 toDelete: false,
               },
             });
+            acceptedFileId = candidate.fileId;
             imported++;
           } else {
             quarantined++;
@@ -313,7 +333,7 @@ export class GmailImportAttachmentsService {
               id: candidate.attachmentId,
               name: candidate.validation.sanitizedFilename,
               providerAttachmentId: candidate.attachment.id,
-              fileId: isAccepted ? candidate.fileId : null,
+              fileId: acceptedFileId,
               mimeType: candidate.validation.mimeType,
               size: candidate.validation.size,
               safetyState: candidate.validation.safetyState,

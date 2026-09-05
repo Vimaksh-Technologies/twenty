@@ -49,7 +49,7 @@ export class AttachmentWorkspaceEntity extends BaseWorkspaceEntity {
   providerAttachmentId: string | null;
   mimeType: string | null;
   size: number | null;
-  safetyState: 'ACCEPTED' | 'QUARANTINED' | null;
+  safetyState: 'ACCEPTED' | 'IMPORTING' | 'QUARANTINED' | null;
   quarantineReason: string | null;
   custom: EntityRelation<CustomWorkspaceEntity>;
 }
