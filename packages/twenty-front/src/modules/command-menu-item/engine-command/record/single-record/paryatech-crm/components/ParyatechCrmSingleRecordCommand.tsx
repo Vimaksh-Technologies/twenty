@@ -2,7 +2,10 @@ import { HeadlessEngineCommandWrapperEffect } from '@/command-menu-item/engine-c
 import { useHeadlessCommandContextApi } from '@/command-menu-item/engine-command/hooks/useHeadlessCommandContextApi';
 import { ParyatechCrmActionForm } from '@/paryatech-crm/components/ParyatechCrmActionForm';
 import { useParyatechCrmActionAvailability } from '@/paryatech-crm/hooks/useParyatechCrmActionAvailability';
-import { type ParyatechCrmAction } from '@/paryatech-crm/types/ParyatechCrmAction';
+import {
+  type ParyatechCrmAction,
+  type ParyatechCrmObjectName,
+} from '@/paryatech-crm/types/ParyatechCrmAction';
 import { Select } from '@/ui/input/components/Select';
 import { ModalStatefulWrapper } from '@/ui/layout/modal/components/ModalStatefulWrapper';
 import { useModal } from '@/ui/layout/modal/hooks/useModal';
@@ -23,15 +26,38 @@ const StyledContent = styled.div`
 
 const LABELS: Record<ParyatechCrmAction, string> = {
   CLAIM_AGENCY: 'Claim Agency',
-  RELEASE_AGENCY: 'Release Agency',
+  CLEAR_SUPPRESSION: 'Clear Suppression',
   RECORD_OUTREACH_OUTCOME: 'Record outreach outcome',
+  RECORD_SUBSTANTIVE_RESPONSE: 'Record substantive response',
+  RECORD_SUPPORT_RECEIPT: 'Attach or create Support Case',
+  RELEASE_AGENCY: 'Release Agency',
+  RESUME_SHARED_EXCEPTION: 'Resume Shared Exception',
+  TRANSITION_AGREEMENT: 'Transition Agreement',
+  TRANSITION_OPPORTUNITY: 'Transition Opportunity',
+  TRANSITION_SUPPORT_CASE: 'Transition Support Case',
 };
+
+const SUPPORTED_OBJECT_NAMES: ParyatechCrmObjectName[] = [
+  'company',
+  'person',
+  'opportunity',
+  'commercialAgreement',
+  'supportCase',
+  'sharedException',
+];
 
 export const ParyatechCrmSingleRecordCommand = () => {
   const { selectedRecords, objectMetadataItem } =
     useHeadlessCommandContextApi();
-  const agencyId = selectedRecords[0]?.id ?? '';
-  const { actions, loading } = useParyatechCrmActionAvailability(agencyId);
+  const recordId = selectedRecords[0]?.id ?? '';
+  const objectName = SUPPORTED_OBJECT_NAMES.find(
+    (supportedObjectName) =>
+      supportedObjectName === objectMetadataItem?.nameSingular,
+  );
+  const { actions, loading } = useParyatechCrmActionAvailability(
+    objectName ?? 'company',
+    objectName ? recordId : '',
+  );
   const [selectedAction, setSelectedAction] = useState<ParyatechCrmAction | ''>(
     '',
   );
@@ -42,7 +68,7 @@ export const ParyatechCrmSingleRecordCommand = () => {
     label: LABELS[action],
   }));
   const ready =
-    objectMetadataItem?.nameSingular === 'company' &&
+    objectName !== undefined &&
     selectedRecords[0] !== undefined &&
     !loading &&
     actions.length > 0;
@@ -66,7 +92,7 @@ export const ParyatechCrmSingleRecordCommand = () => {
         renderInDocumentBody
         autoHeight
       >
-        <ModalHeader>Agency action</ModalHeader>
+        <ModalHeader>CRM record action</ModalHeader>
         <ModalContent>
           <StyledContent>
             <Select
@@ -86,7 +112,9 @@ export const ParyatechCrmSingleRecordCommand = () => {
             {selectedAction !== '' && (
               <ParyatechCrmActionForm
                 action={selectedAction}
-                agencyId={agencyId}
+                agencyId={recordId}
+                recordId={recordId}
+                objectName={objectName ?? 'company'}
                 onSuccess={handleSuccess}
               />
             )}

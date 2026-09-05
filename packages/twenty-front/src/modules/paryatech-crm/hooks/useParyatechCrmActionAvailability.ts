@@ -1,14 +1,20 @@
 import { GET_PARYATECH_CRM_AVAILABLE_ACTIONS } from '@/paryatech-crm/graphql/queries/getParyatechCrmAvailableActions';
-import { type ParyatechCrmAvailableAction } from '@/paryatech-crm/types/ParyatechCrmAction';
+import {
+  type ParyatechCrmAvailableAction,
+  type ParyatechCrmObjectName,
+} from '@/paryatech-crm/types/ParyatechCrmAction';
 import { useQuery } from '@apollo/client/react';
 
-export const useParyatechCrmActionAvailability = (agencyId: string) => {
+export const useParyatechCrmActionAvailability = (
+  objectName: ParyatechCrmObjectName,
+  recordId: string,
+) => {
   const { data, loading, error, refetch } = useQuery<
     { getParyatechCrmAvailableActions: ParyatechCrmAvailableAction[] },
-    { agencyId: string }
+    { objectName: ParyatechCrmObjectName; recordId: string }
   >(GET_PARYATECH_CRM_AVAILABLE_ACTIONS, {
-    variables: { agencyId },
-    skip: agencyId.length === 0,
+    variables: { objectName, recordId },
+    skip: recordId.length === 0,
     fetchPolicy: 'network-only',
   });
 

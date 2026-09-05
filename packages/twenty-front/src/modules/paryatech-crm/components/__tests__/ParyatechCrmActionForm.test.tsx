@@ -1,5 +1,12 @@
+import { areParyatechActionDetailsValid } from '@/paryatech-crm/components/ParyatechCrmActionDetails';
 import { ParyatechCrmActionForm } from '@/paryatech-crm/components/ParyatechCrmActionForm';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 
 const execute = jest.fn();
 let loading = false;
@@ -19,6 +26,18 @@ jest.mock('@/paryatech-crm/hooks/useAgencyContactOptions', () => ({
     loading: false,
   }),
 }));
+
+jest.mock(
+  '@/paryatech-crm/hooks/useParyatechOpportunityRelationOptions',
+  () => ({
+    useParyatechOpportunityRelationOptions: () => ({
+      contactOptions: [{ value: 'contact-1', label: 'Ada Lovelace' }],
+      productOptions: [{ value: 'product-1', label: 'ParyatechOS' }],
+      agreementOptions: [{ value: 'agreement-1', label: 'AGR-001' }],
+      loading: false,
+    }),
+  }),
+);
 
 jest.mock('@/ui/input/components/TextArea', () => ({
   TextArea: ({
@@ -172,6 +191,45 @@ describe('ParyatechCrmActionForm', () => {
     await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
   });
 
+  it('should submit from the keyboard and render an actionable correction', async () => {
+    execute.mockResolvedValue({
+      data: {
+        claimAgency: {
+          correction: 'Refresh the Agency before the next action.',
+        },
+      },
+    });
+    render(
+      <ParyatechCrmActionForm
+        action="CLAIM_AGENCY"
+        agencyId="agency-1"
+        onSuccess={jest.fn()}
+      />,
+    );
+    fillRequiredEvidence();
+
+    fireEvent.submit(screen.getByRole('form', { name: 'CRM record action' }));
+
+    expect(
+      await screen.findByText('Refresh the Agency before the next action.'),
+    ).toBeInTheDocument();
+  });
+
+  it('should not require Case-match evidence when intake creates a Case', () => {
+    expect(
+      areParyatechActionDetailsValid('RECORD_SUPPORT_RECEIPT', {
+        receiptKey: 'Phone:source-1',
+        providerOrSourceId: 'source-1',
+        payloadHash: 'sha256:abc',
+        channel: 'Phone',
+        sourceReceivedAt: '2026-09-04T10:00:00.000Z',
+        subject: 'Help',
+        summary: 'Support request',
+        priority: 'High',
+      }),
+    ).toBe(true);
+  });
+
   it('should expose exact U1 channels and serialize Pending / Unknown evidence', async () => {
     execute.mockResolvedValue(undefined);
     render(
@@ -267,5 +325,84 @@ describe('ParyatechCrmActionForm', () => {
     );
     expect(screen.getByLabelText('Evidence')).toHaveValue('Reviewed source');
     expect(button).toHaveFocus();
+  });
+  it.each([
+    ['TRANSITION_OPPORTUNITY', 'opportunity', 'Target stage'],
+    ['TRANSITION_AGREEMENT', 'commercialAgreement', 'Transition'],
+    ['RECORD_SUPPORT_RECEIPT', 'supportCase', 'Receipt key'],
+    ['CLEAR_SUPPRESSION', 'company', 'Reason'],
+    ['RECORD_SUBSTANTIVE_RESPONSE', 'supportCase', 'Response summary'],
+    ['TRANSITION_SUPPORT_CASE', 'supportCase', 'Target status'],
+    ['RESUME_SHARED_EXCEPTION', 'sharedException', 'Gate passed'],
+  ] as const)(
+    'should expose the typed %s form without a raw record ID control',
+    (action, objectName, expectedControl) => {
+      render(
+        <ParyatechCrmActionForm
+          action={action}
+          agencyId="record-1"
+          recordId="record-1"
+          objectName={objectName}
+          onSuccess={jest.fn()}
+        />,
+      );
+
+      expect(screen.getByLabelText(expectedControl)).toBeInTheDocument();
+      expect(screen.queryByLabelText(/record id/i)).not.toBeInTheDocument();
+    },
+  );
+
+  it('should serialize an Opportunity transition with exact U1 states', async () => {
+    execute.mockResolvedValue(undefined);
+    render(
+      <ParyatechCrmActionForm
+        action="TRANSITION_OPPORTUNITY"
+        agencyId="opportunity-1"
+        recordId="opportunity-1"
+        objectName="opportunity"
+        onSuccess={jest.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Expected stage'), {
+      target: { value: 'Qualified' },
+    });
+    fireEvent.change(screen.getByLabelText('Target stage'), {
+      target: { value: 'Demo Scheduled' },
+    });
+    fillRequiredEvidence();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm action' }));
+
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+    expect(execute).toHaveBeenCalledWith(
+      'TRANSITION_OPPORTUNITY',
+      expect.objectContaining({
+        opportunityId: 'opportunity-1',
+        expectedStage: 'Qualified',
+        targetStage: 'Demo Scheduled',
+      }),
+    );
+  });
+
+  it('should use visible relation selectors instead of raw Opportunity IDs', () => {
+    render(
+      <ParyatechCrmActionForm
+        action="TRANSITION_OPPORTUNITY"
+        recordId="opportunity-1"
+        objectName="opportunity"
+        onSuccess={jest.fn()}
+      />,
+    );
+
+    const contactSelector = screen.getByLabelText('Participating Contact');
+    expect(contactSelector).toBeInTheDocument();
+    expect(
+      within(contactSelector).getByRole('option', { name: 'Ada Lovelace' }),
+    ).toHaveValue('contact-1');
+    expect(screen.getByRole('option', { name: 'ParyatechOS' })).toHaveValue(
+      'product-1',
+    );
+    expect(screen.getByRole('option', { name: 'AGR-001' })).toHaveValue(
+      'agreement-1',
+    );
   });
 });

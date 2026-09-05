@@ -23,11 +23,20 @@ describe('useParyatechCrmActionAvailability', () => {
       refetch: jest.fn(),
     });
     const { result } = renderHook(() =>
-      useParyatechCrmActionAvailability('agency-1'),
+      useParyatechCrmActionAvailability('opportunity', 'opportunity-1'),
     );
     expect(result.current.actions.map(({ action }) => action)).toEqual([
       'CLAIM_AGENCY',
     ]);
+    expect(useQueryMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        variables: {
+          objectName: 'opportunity',
+          recordId: 'opportunity-1',
+        },
+      }),
+    );
   });
 
   it('should expose no actions while the server returns none', () => {
@@ -38,7 +47,7 @@ describe('useParyatechCrmActionAvailability', () => {
       refetch: jest.fn(),
     });
     const { result } = renderHook(() =>
-      useParyatechCrmActionAvailability('agency-1'),
+      useParyatechCrmActionAvailability('company', 'agency-1'),
     );
     expect(result.current.actions).toEqual([]);
   });

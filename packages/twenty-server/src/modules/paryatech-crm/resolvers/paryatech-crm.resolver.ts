@@ -17,17 +17,31 @@ import { WorkspaceAuthGuard } from 'src/engine/guards/workspace-auth.guard';
 import { GlobalWorkspaceOrmManager } from 'src/engine/twenty-orm/global-workspace-datasource/global-workspace-orm.manager';
 import { buildSystemAuthContext } from 'src/engine/twenty-orm/utils/build-system-auth-context.util';
 import { ClaimAgencyInput } from 'src/modules/paryatech-crm/dtos/claim-agency.input';
+import { ClearSuppressionInput } from 'src/modules/paryatech-crm/dtos/clear-suppression.input';
 import { RecordOutreachOutcomeInput } from 'src/modules/paryatech-crm/dtos/record-outreach-outcome.input';
+import { RecordSubstantiveResponseInput } from 'src/modules/paryatech-crm/dtos/record-substantive-response.input';
+import { RecordSupportReceiptInput } from 'src/modules/paryatech-crm/dtos/record-support-receipt.input';
 import { ReleaseAgencyInput } from 'src/modules/paryatech-crm/dtos/release-agency.input';
+import { ResumeSharedExceptionInput } from 'src/modules/paryatech-crm/dtos/resume-shared-exception.input';
+import { TransitionAgreementInput } from 'src/modules/paryatech-crm/dtos/transition-agreement.input';
+import { TransitionOpportunityInput } from 'src/modules/paryatech-crm/dtos/transition-opportunity.input';
+import { TransitionSupportCaseInput } from 'src/modules/paryatech-crm/dtos/transition-support-case.input';
 import {
   ParyatechCrmException,
   ParyatechCrmExceptionCode,
 } from 'src/modules/paryatech-crm/exceptions/paryatech-crm.exception';
 import { AgencyContactControlService } from 'src/modules/paryatech-crm/services/agency-contact-control.service';
+import { AgreementTransitionService } from 'src/modules/paryatech-crm/services/agreement-transition.service';
+import { OpportunityTransitionService } from 'src/modules/paryatech-crm/services/opportunity-transition.service';
+import { ParyatechCrmActionAvailabilityService } from 'src/modules/paryatech-crm/services/paryatech-crm-action-availability.service';
+import { SharedExceptionService } from 'src/modules/paryatech-crm/services/shared-exception.service';
+import { SupportCaseIntakeService } from 'src/modules/paryatech-crm/services/support-case-intake.service';
+import { SuppressionClearanceService } from 'src/modules/paryatech-crm/services/suppression-clearance.service';
 import {
   type AgencyActionResult,
   type ParyatechCrmAction,
 } from 'src/modules/paryatech-crm/types/agency-contact-control.type';
+import { type GuardedTransitionResult } from 'src/modules/paryatech-crm/types/paryatech-transition.type';
 
 @ObjectType('ParyatechCrmActionResult')
 export class ParyatechCrmActionResultDTO implements AgencyActionResult {
@@ -68,6 +82,24 @@ export class ParyatechCrmActionResultDTO implements AgencyActionResult {
   firstEngagedAt: Date | null;
 }
 
+@ObjectType('ParyatechCrmTransitionResult')
+export class ParyatechCrmTransitionResultDTO implements GuardedTransitionResult {
+  @Field(() => UUIDScalarType)
+  recordId: string;
+
+  @Field(() => String)
+  objectName: string;
+
+  @Field(() => String)
+  state: string;
+
+  @Field(() => String, { nullable: true })
+  correction: string | null;
+
+  @Field(() => Boolean, { nullable: true })
+  replayed?: boolean;
+}
+
 @ObjectType('ParyatechCrmAvailableAction')
 export class ParyatechCrmAvailableActionDTO {
   @Field(() => String)
@@ -87,12 +119,26 @@ export class ParyatechCrmAvailableActionDTO {
 export class ParyatechCrmResolver {
   constructor(
     private readonly agencyContactControlService: AgencyContactControlService,
+    private readonly opportunityTransitionService: OpportunityTransitionService,
+    private readonly agreementTransitionService: AgreementTransitionService,
+    private readonly supportCaseIntakeService: SupportCaseIntakeService,
+    private readonly suppressionClearanceService: SuppressionClearanceService,
+    private readonly sharedExceptionService: SharedExceptionService,
+    private readonly actionAvailabilityService: ParyatechCrmActionAvailabilityService,
     private readonly globalWorkspaceOrmManager: GlobalWorkspaceOrmManager,
   ) {}
 
   @Query(() => [ParyatechCrmAvailableActionDTO])
   async getParyatechCrmAvailableActions(
-    @Args('agencyId', { type: () => UUIDScalarType }) agencyId: string,
+    @Args('objectName', { type: () => String })
+    objectName:
+      | 'company'
+      | 'person'
+      | 'opportunity'
+      | 'commercialAgreement'
+      | 'supportCase'
+      | 'sharedException',
+    @Args('recordId', { type: () => UUIDScalarType }) recordId: string,
     @AuthWorkspace() workspace: WorkspaceEntity,
     @AuthUserWorkspaceId() userWorkspaceId: string,
     @AuthUser() user: AuthContextUser,
@@ -101,11 +147,12 @@ export class ParyatechCrmResolver {
       workspace.id,
       user.id,
     );
-    const actions = await this.agencyContactControlService.getAvailableActions({
+    const actions = await this.actionAvailabilityService.getAvailableActions({
       workspaceId: workspace.id,
       userWorkspaceId,
       actorWorkspaceMemberId,
-      agencyId,
+      objectName,
+      recordId,
     });
 
     return actions.map((action) => ({
@@ -114,7 +161,6 @@ export class ParyatechCrmResolver {
       requiresEvidence: true,
     }));
   }
-
   @Mutation(() => ParyatechCrmActionResultDTO)
   async claimAgency(
     @Args('input') input: ClaimAgencyInput,
@@ -159,6 +205,139 @@ export class ParyatechCrmResolver {
     @AuthUser() user: AuthContextUser,
   ) {
     return this.agencyContactControlService.recordOutreachOutcome({
+      workspaceId: workspace.id,
+      userWorkspaceId,
+      actorWorkspaceMemberId: await this.getWorkspaceMemberId(
+        workspace.id,
+        user.id,
+      ),
+      ...input,
+    });
+  }
+
+  @Mutation(() => ParyatechCrmTransitionResultDTO)
+  async transitionOpportunity(
+    @Args('input') input: TransitionOpportunityInput,
+    @AuthWorkspace() workspace: WorkspaceEntity,
+    @AuthUserWorkspaceId() userWorkspaceId: string,
+    @AuthUser() user: AuthContextUser,
+  ) {
+    const actorWorkspaceMemberId = await this.getWorkspaceMemberId(
+      workspace.id,
+      user.id,
+    );
+    return this.opportunityTransitionService.transition({
+      workspaceId: workspace.id,
+      userWorkspaceId,
+      actorWorkspaceMemberId,
+      ...input,
+      trialOwnerId: actorWorkspaceMemberId,
+    });
+  }
+
+  @Mutation(() => ParyatechCrmTransitionResultDTO)
+  async transitionAgreement(
+    @Args('input') input: TransitionAgreementInput,
+    @AuthWorkspace() workspace: WorkspaceEntity,
+    @AuthUserWorkspaceId() userWorkspaceId: string,
+    @AuthUser() user: AuthContextUser,
+  ) {
+    const actorWorkspaceMemberId = await this.getWorkspaceMemberId(
+      workspace.id,
+      user.id,
+    );
+    return this.agreementTransitionService.transition({
+      workspaceId: workspace.id,
+      userWorkspaceId,
+      actorWorkspaceMemberId,
+      ...input,
+      evidenceVerifierId: actorWorkspaceMemberId,
+      activationConfirmerId: actorWorkspaceMemberId,
+    });
+  }
+
+  @Mutation(() => ParyatechCrmTransitionResultDTO)
+  async recordSupportReceipt(
+    @Args('input') input: RecordSupportReceiptInput,
+    @AuthWorkspace() workspace: WorkspaceEntity,
+    @AuthUserWorkspaceId() userWorkspaceId: string,
+    @AuthUser() user: AuthContextUser,
+  ) {
+    const actorWorkspaceMemberId = await this.getWorkspaceMemberId(
+      workspace.id,
+      user.id,
+    );
+    return this.supportCaseIntakeService.recordReceipt({
+      workspaceId: workspace.id,
+      userWorkspaceId,
+      actorWorkspaceMemberId,
+      ...input,
+      ownerId: actorWorkspaceMemberId,
+    });
+  }
+
+  @Mutation(() => ParyatechCrmTransitionResultDTO)
+  async clearSuppression(
+    @Args('input') input: ClearSuppressionInput,
+    @AuthWorkspace() workspace: WorkspaceEntity,
+    @AuthUserWorkspaceId() userWorkspaceId: string,
+    @AuthUser() user: AuthContextUser,
+  ) {
+    return this.suppressionClearanceService.clear({
+      workspaceId: workspace.id,
+      userWorkspaceId,
+      actorWorkspaceMemberId: await this.getWorkspaceMemberId(
+        workspace.id,
+        user.id,
+      ),
+      ...input,
+    });
+  }
+
+  @Mutation(() => ParyatechCrmTransitionResultDTO)
+  async recordSubstantiveResponse(
+    @Args('input') input: RecordSubstantiveResponseInput,
+    @AuthWorkspace() workspace: WorkspaceEntity,
+    @AuthUserWorkspaceId() userWorkspaceId: string,
+    @AuthUser() user: AuthContextUser,
+  ) {
+    return this.supportCaseIntakeService.recordSubstantiveResponse({
+      workspaceId: workspace.id,
+      userWorkspaceId,
+      actorWorkspaceMemberId: await this.getWorkspaceMemberId(
+        workspace.id,
+        user.id,
+      ),
+      ...input,
+    });
+  }
+
+  @Mutation(() => ParyatechCrmTransitionResultDTO)
+  async transitionSupportCase(
+    @Args('input') input: TransitionSupportCaseInput,
+    @AuthWorkspace() workspace: WorkspaceEntity,
+    @AuthUserWorkspaceId() userWorkspaceId: string,
+    @AuthUser() user: AuthContextUser,
+  ) {
+    return this.supportCaseIntakeService.transitionCase({
+      workspaceId: workspace.id,
+      userWorkspaceId,
+      actorWorkspaceMemberId: await this.getWorkspaceMemberId(
+        workspace.id,
+        user.id,
+      ),
+      ...input,
+    });
+  }
+
+  @Mutation(() => ParyatechCrmTransitionResultDTO)
+  async resumeSharedException(
+    @Args('input') input: ResumeSharedExceptionInput,
+    @AuthWorkspace() workspace: WorkspaceEntity,
+    @AuthUserWorkspaceId() userWorkspaceId: string,
+    @AuthUser() user: AuthContextUser,
+  ) {
+    return this.sharedExceptionService.resume({
       workspaceId: workspace.id,
       userWorkspaceId,
       actorWorkspaceMemberId: await this.getWorkspaceMemberId(
