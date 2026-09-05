@@ -84,17 +84,33 @@ type ApplyOptions = {
   revokeTemporaryKey: () => Promise<void>;
 };
 
-type PlannedOperation = {
-  externalKey: string;
-  existingRecordId?: string;
-  input:
-    | AcquisitionSourcePayload
-    | CompanyPayload
-    | CompanySourceRelationPayload
-    | PersonPayload
-    | RelationPayload;
-  phase: ImportPhase;
-};
+type PlannedOperation =
+  | {
+      externalKey: string;
+      input: AcquisitionSourcePayload;
+      phase: 'source';
+    }
+  | {
+      existingRecordId?: string;
+      externalKey: string;
+      input: CompanyPayload;
+      phase: 'company';
+    }
+  | {
+      externalKey: string;
+      input: PersonPayload;
+      phase: 'person';
+    }
+  | {
+      externalKey: string;
+      input: CompanySourceRelationPayload;
+      phase: 'company-source-relation';
+    }
+  | {
+      externalKey: string;
+      input: RelationPayload;
+      phase: 'relation';
+    };
 
 const allowedApplyDecisions: ReviewDecision[] = [
   'Confirm Existing Agency',
@@ -799,24 +815,15 @@ const executeOperation = async (
 ): Promise<ApiEntityResult> => {
   switch (operation.phase) {
     case 'source':
-      return adapter.upsertSource(
-        operation.input as AcquisitionSourcePayload,
-        context,
-      );
+      return adapter.upsertSource(operation.input, context);
     case 'company':
-      return adapter.upsertCompany(operation.input as CompanyPayload, context);
+      return adapter.upsertCompany(operation.input, context);
     case 'person':
-      return adapter.upsertPerson(operation.input as PersonPayload, context);
+      return adapter.upsertPerson(operation.input, context);
     case 'company-source-relation':
-      return adapter.linkCompanyToSource(
-        operation.input as CompanySourceRelationPayload,
-        context,
-      );
+      return adapter.linkCompanyToSource(operation.input, context);
     case 'relation':
-      return adapter.linkPersonToCompany(
-        operation.input as RelationPayload,
-        context,
-      );
+      return adapter.linkPersonToCompany(operation.input, context);
   }
 };
 
@@ -925,15 +932,16 @@ export const applyApprovedImport = async (
         continue;
       }
 
-      const context: ApiOperationContext = {
-        idempotencyKey,
-        ...(operation.existingRecordId === undefined
-          ? {}
-          : { existingRecordId: operation.existingRecordId }),
-      };
+      const context: ApiOperationContext = { idempotencyKey };
+      if (
+        operation.phase === 'company' &&
+        operation.existingRecordId !== undefined
+      ) {
+        context.existingRecordId = operation.existingRecordId;
+      }
 
       if (operation.phase === 'company-source-relation') {
-        const relation = operation.input as CompanySourceRelationPayload;
+        const relation = operation.input;
         const companyIdempotencyKey = sha256(
           `${plan.planHash}:company:${relation.companyExternalKey}`,
         );
@@ -956,7 +964,7 @@ export const applyApprovedImport = async (
       }
 
       if (operation.phase === 'relation') {
-        const relation = operation.input as RelationPayload;
+        const relation = operation.input;
         const companyIdempotencyKey = sha256(
           `${plan.planHash}:company:${relation.companyExternalKey}`,
         );
@@ -1416,10 +1424,7 @@ export const createTwentyGraphqlAdapter = (
       const company = connection?.edges?.[0]?.node;
 
       if (company?.id !== context.companyRecordId) {
-        throw new TwentyGraphqlError(
-          'INVALID_RESPONSE',
-          inspectOperationName,
-        );
+        throw new TwentyGraphqlError('INVALID_RESPONSE', inspectOperationName);
       }
 
       const existingSourceId = company.originalAcquisitionSource?.id;
@@ -1433,7 +1438,6 @@ export const createTwentyGraphqlAdapter = (
           inspectOperationName,
         );
       }
-
 
       if (existingSourceId === context.sourceRecordId) {
         return { created: false, id: context.companyRecordId };
@@ -1451,9 +1455,7 @@ export const createTwentyGraphqlAdapter = (
         },
         context.idempotencyKey,
       );
-      const result = responseData.updateCompany as
-        | { id?: unknown }
-        | undefined;
+      const result = responseData.updateCompany as { id?: unknown } | undefined;
 
       if (typeof result?.id !== 'string') {
         throw new TwentyGraphqlError('INVALID_RESPONSE', operationName);

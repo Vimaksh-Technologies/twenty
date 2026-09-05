@@ -385,13 +385,12 @@ export class TypeOrmAgencyContactControlStore extends AgencyContactControlStore 
                       status: In([...UNRESOLVED_EXCEPTION_STATUSES]),
                     },
                   });
+            const pendingExceptionEventIds = new Set(
+              pendingExceptions.map(({ affectedRecordId }) => affectedRecordId),
+            );
             const blockedAgencyIds = new Set(
               pendingEvents
-                .filter(({ id }) =>
-                  pendingExceptions.some(
-                    (exception) => exception.affectedRecordId === id,
-                  ),
-                )
+                .filter(({ id }) => pendingExceptionEventIds.has(id))
                 .map(({ agencyId }) => agencyId as string),
             );
             const expirableIds = candidates

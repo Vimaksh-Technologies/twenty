@@ -1,3 +1,5 @@
+import { isNonEmptyString } from '@sniptt/guards';
+
 import { useFindManyRecords } from '@/object-record/hooks/useFindManyRecords';
 import { CoreObjectNameSingular } from 'twenty-shared/types';
 import { type SelectOption } from 'twenty-ui/input';
@@ -14,7 +16,7 @@ const labelForRecord = (record: NamedRecord) => {
   }
   if (typeof record.name === 'object') {
     const fullName = [record.name.firstName, record.name.lastName]
-      .filter((namePart) => namePart !== undefined && namePart.length > 0)
+      .filter(isNonEmptyString)
       .join(' ');
     if (fullName.length > 0) {
       return fullName;

@@ -92,6 +92,18 @@ export type CommercialRollbackManifest = {
   schemaVersion: typeof ROLLBACK_SCHEMA_VERSION;
 };
 
+type CommercialRollbackAction =
+  CommercialRollbackManifest['operations'][number]['action'];
+
+const ROLLBACK_ACTION_BY_MUTATION = {
+  created: 'delete-created',
+  unchanged: 'none',
+  updated: 'restore-previous',
+} satisfies Record<
+  CommercialCutoverOperation['mutation'],
+  CommercialRollbackAction
+>;
+
 export type CommercialCutoverApplyResult = {
   applyHash: string;
   counts: {
@@ -570,12 +582,7 @@ const buildRollbackManifest = (
     freezeId,
     mode: 'restore-and-lift-freeze' as const,
     operations: operations.map((operation) => ({
-      action:
-        operation.mutation === 'created'
-          ? ('delete-created' as const)
-          : operation.mutation === 'updated'
-            ? ('restore-previous' as const)
-            : ('none' as const),
+      action: ROLLBACK_ACTION_BY_MUTATION[operation.mutation],
       agreementReference: operation.agreementReference,
       previous: operation.previous,
       recordId: operation.recordId,

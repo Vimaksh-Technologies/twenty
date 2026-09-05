@@ -763,6 +763,21 @@ const parseWorksheetRows = (
     },
   );
 };
+const indexFirstValueByColumn = <
+  TValue extends {
+    columnIndex: number;
+  },
+>(
+  values: TValue[],
+): Map<number, TValue> => {
+  const valuesByColumn = new Map<number, TValue>();
+  for (const value of values) {
+    if (!valuesByColumn.has(value.columnIndex)) {
+      valuesByColumn.set(value.columnIndex, value);
+    }
+  }
+  return valuesByColumn;
+};
 
 const prepareXlsx = (
   buffer: Buffer,
@@ -874,12 +889,11 @@ const prepareXlsx = (
       -1,
       ...headerRow.values.map((value) => value.columnIndex),
     );
+    const headersByColumn = indexFirstValueByColumn(headerRow.values);
     const headers = Array.from(
       { length: highestHeaderColumn + 1 },
       (_, index) => {
-        const header = headerRow.values.find(
-          (value) => value.columnIndex === index,
-        );
+        const header = headersByColumn.get(index);
 
         if (header?.type === 'formula') {
           throw new ImportValidationError(
@@ -915,11 +929,12 @@ const prepareXlsx = (
       headers,
       name: sheet.name,
       rows: dataRows.map((row) => {
+        const valuesByColumn = indexFirstValueByColumn(row.values);
         const rowValues = Array.from(
           { length: headers.length },
           (_, columnIndex) => {
             return (
-              row.values.find((value) => value.columnIndex === columnIndex) ?? {
+              valuesByColumn.get(columnIndex) ?? {
                 columnIndex,
                 display: '',
                 original: '',

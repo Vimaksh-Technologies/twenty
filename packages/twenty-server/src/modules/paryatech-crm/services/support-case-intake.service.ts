@@ -214,11 +214,11 @@ export class SupportCaseIntakeService {
             : {}),
         });
 
-        const receipts = await this.receiptsForCase(
-          transaction,
-          supportCase.id,
-        );
         if (closesAsClassification) {
+          const receipts = await this.receiptsForCase(
+            transaction,
+            supportCase.id,
+          );
           await Promise.all(
             receipts.map((receipt) =>
               transaction.update('supportReceipt', receipt.id, {

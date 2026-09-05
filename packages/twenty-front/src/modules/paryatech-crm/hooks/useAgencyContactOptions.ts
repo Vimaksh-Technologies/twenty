@@ -1,3 +1,5 @@
+import { isNonEmptyString } from '@sniptt/guards';
+
 import { useFindManyRecords } from '@/object-record/hooks/useFindManyRecords';
 import { CoreObjectNameSingular } from 'twenty-shared/types';
 import { type SelectOption } from 'twenty-ui/input';
@@ -35,7 +37,7 @@ export const useAgencyContactOptions = (agencyId: string) => {
     records as AgencyContactRecord[]
   ).map((contact) => {
     const fullName = [contact.name?.firstName, contact.name?.lastName]
-      .filter((namePart) => namePart !== undefined && namePart.length > 0)
+      .filter(isNonEmptyString)
       .join(' ');
     const primaryEmail = contact.emails?.primaryEmail ?? '';
     const label = [fullName, primaryEmail]
