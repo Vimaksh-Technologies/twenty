@@ -18,6 +18,11 @@ export const PARYATECH_ROLE = {
 export type ParyatechRole =
   (typeof PARYATECH_ROLE)[keyof typeof PARYATECH_ROLE];
 
+export type ParyatechActorRole = {
+  label: string;
+  isEditable: boolean;
+};
+
 export const OPPORTUNITY_STAGES = [
   'Qualified',
   'Demo Scheduled',
@@ -220,11 +225,19 @@ export type ParyatechTransitionTransactionOptions = {
 };
 
 export abstract class ParyatechTransitionStore {
-  abstract getActorRoleLabel(
+  abstract getActorRole(
     params: GuardedActionIdentity & {
       workspaceId: string;
     },
-  ): Promise<string>;
+  ): Promise<ParyatechActorRole>;
+
+  async getActorRoleLabel(
+    params: GuardedActionIdentity & {
+      workspaceId: string;
+    },
+  ): Promise<string> {
+    return (await this.getActorRole(params)).label;
+  }
 
   abstract transact<TData>(
     options: ParyatechTransitionTransactionOptions,

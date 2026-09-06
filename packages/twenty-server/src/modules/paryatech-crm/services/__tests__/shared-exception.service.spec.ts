@@ -68,6 +68,55 @@ describe('SharedExceptionService', () => {
   });
 
   it.each([
+    ['the built-in Admin role', 'Admin', false],
+    ['the custom recovery role', 'Paryatech Recovery Administrator', true],
+  ])(
+    'should authorize %s for Recovery exceptions',
+    async (_name, roleLabel, roleIsEditable) => {
+      const { store, service } = setup();
+
+      store.roleLabel = roleLabel;
+      store.roleIsEditable = roleIsEditable;
+      store.records.sharedException[0].capability = 'Recovery';
+
+      await expect(service.resume(input())).resolves.toMatchObject({
+        recordId: 'exception-1',
+        state: 'Resolved',
+      });
+    },
+  );
+
+  it.each([
+    ['an editable role named Admin', 'Admin', true],
+    ['an unrelated custom role', 'Paryatech Legal Compliance', true],
+  ])(
+    'should reject %s for Recovery exceptions',
+    async (_name, roleLabel, roleIsEditable) => {
+      const { store, service } = setup();
+
+      store.roleLabel = roleLabel;
+      store.roleIsEditable = roleIsEditable;
+      store.records.sharedException[0].capability = 'Recovery';
+
+      await expect(service.resume(input())).rejects.toMatchObject({
+        code: ParyatechCrmExceptionCode.PERMISSION_DENIED,
+      });
+    },
+  );
+
+  it('should not grant built-in Admin access to non-Recovery capabilities', async () => {
+    const { store, service } = setup();
+
+    store.roleLabel = 'Admin';
+    store.roleIsEditable = false;
+    store.records.sharedException[0].capability = 'Policy';
+
+    await expect(service.resume(input())).rejects.toMatchObject({
+      code: ParyatechCrmExceptionCode.PERMISSION_DENIED,
+    });
+  });
+
+  it.each([
     [
       'missing evidence',
       { evidence: '' },

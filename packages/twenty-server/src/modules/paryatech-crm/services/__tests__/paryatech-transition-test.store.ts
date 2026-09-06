@@ -13,6 +13,7 @@ import {
 
 export class InMemoryParyatechTransitionStore extends ParyatechTransitionStore {
   roleLabel = 'Paryatech Operator';
+  roleIsEditable = true;
   apiKeyRoleLabels = new Map([
     ['support-key', 'Paryatech Support Intake'],
     ['unrelated-key', 'Paryatech Operator'],
@@ -21,12 +22,14 @@ export class InMemoryParyatechTransitionStore extends ParyatechTransitionStore {
   createdRecords: Array<{ objectName: string; record: ParyatechRecord }> = [];
   guardedActionReceipts: GuardedActionReceipt[] = [];
 
-  async getActorRoleLabel(
-    params: GuardedActionIdentity & { workspaceId: string },
-  ) {
-    return params.apiKeyId === undefined
-      ? this.roleLabel
-      : (this.apiKeyRoleLabels.get(params.apiKeyId) ?? '');
+  async getActorRole(params: GuardedActionIdentity & { workspaceId: string }) {
+    return {
+      label:
+        params.apiKeyId === undefined
+          ? this.roleLabel
+          : (this.apiKeyRoleLabels.get(params.apiKeyId) ?? ''),
+      isEditable: params.apiKeyId === undefined ? this.roleIsEditable : true,
+    };
   }
 
   async transact<TData>(

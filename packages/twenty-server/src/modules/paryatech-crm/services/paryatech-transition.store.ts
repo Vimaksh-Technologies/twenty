@@ -53,16 +53,14 @@ export class TypeOrmParyatechTransitionStore extends ParyatechTransitionStore {
     super();
   }
 
-  async getActorRoleLabel(
-    params: GuardedActionIdentity & { workspaceId: string },
-  ): Promise<string> {
+  async getActorRole(params: GuardedActionIdentity & { workspaceId: string }) {
     if (params.apiKeyId !== undefined) {
       const role = await this.apiKeyRoleService.getRoleDtoByApiKeyId({
         apiKeyId: params.apiKeyId,
         workspaceId: params.workspaceId,
       });
 
-      return role.label;
+      return { label: role.label, isEditable: role.isEditable };
     }
     const roleId = await this.userRoleService.getRoleIdForUserWorkspace({
       workspaceId: params.workspaceId,
@@ -77,7 +75,7 @@ export class TypeOrmParyatechTransitionStore extends ParyatechTransitionStore {
         ParyatechCrmExceptionCode.PERMISSION_DENIED,
       );
     }
-    return role.label;
+    return { label: role.label, isEditable: role.isEditable };
   }
 
   async transact<TData>(

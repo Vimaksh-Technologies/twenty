@@ -61,15 +61,17 @@ describe('ParyatechCrmActionAvailabilityService', () => {
   });
 
   it.each([
-    ['opportunity', 'Paryatech Operator', ['TRANSITION_OPPORTUNITY']],
+    ['opportunity', 'Paryatech Operator', true, ['TRANSITION_OPPORTUNITY']],
     [
       'commercialAgreement',
       'Paryatech Commercial Sensitive',
+      true,
       ['TRANSITION_AGREEMENT'],
     ],
     [
       'supportCase',
       'Paryatech Operator',
+      true,
       [
         'RECORD_SUPPORT_RECEIPT',
         'RECORD_SUBSTANTIVE_RESPONSE',
@@ -79,13 +81,17 @@ describe('ParyatechCrmActionAvailabilityService', () => {
     [
       'sharedException',
       'Paryatech Recovery Administrator',
+      true,
       ['RESUME_SHARED_EXCEPTION'],
     ],
+    ['sharedException', 'Admin', false, ['RESUME_SHARED_EXCEPTION']],
   ] as const)(
     'should expose server-authorized actions for %s',
-    async (objectName, roleLabel, expectedActions) => {
+    async (objectName, roleLabel, roleIsEditable, expectedActions) => {
       const { store, service } = setup();
+
       store.roleLabel = roleLabel;
+      store.roleIsEditable = roleIsEditable;
       store.records[objectName] = [
         {
           id: 'record-1',
@@ -98,6 +104,40 @@ describe('ParyatechCrmActionAvailabilityService', () => {
       await expect(
         service.getAvailableActions({ ...context, objectName }),
       ).resolves.toEqual(expectedActions);
+    },
+  );
+
+  it.each([
+    ['an editable role named Admin', 'Admin', true, 'Recovery'],
+    [
+      'an unrelated custom role',
+      'Paryatech Legal Compliance',
+      true,
+      'Recovery',
+    ],
+    ['built-in Admin outside Recovery', 'Admin', false, 'Policy'],
+  ])(
+    'should hide resume from %s',
+    async (_name, roleLabel, roleIsEditable, capability) => {
+      const { store, service } = setup();
+
+      store.roleLabel = roleLabel;
+      store.roleIsEditable = roleIsEditable;
+      store.records.sharedException = [
+        {
+          id: 'record-1',
+          status: 'Resolved',
+          capability,
+          ownerId: 'member-1',
+        },
+      ];
+
+      await expect(
+        service.getAvailableActions({
+          ...context,
+          objectName: 'sharedException',
+        }),
+      ).resolves.toEqual([]);
     },
   );
 

@@ -3,10 +3,30 @@ import {
   ParyatechCrmExceptionCode,
 } from 'src/modules/paryatech-crm/exceptions/paryatech-crm.exception';
 import {
+  PARYATECH_ROLE,
   type GuardedActionContext,
   type GuardedTransitionResult,
+  type ParyatechActorRole,
   type ParyatechRecord,
 } from 'src/modules/paryatech-crm/types/paryatech-transition.type';
+
+const BUILT_IN_ADMIN_ROLE_LABEL = 'Admin';
+
+const SHARED_EXCEPTION_ROLES_BY_CAPABILITY: Record<string, readonly string[]> =
+  {
+    Import: [PARYATECH_ROLE.OPERATOR],
+    Outreach: [PARYATECH_ROLE.OPERATOR, PARYATECH_ROLE.COMMERCIAL_SENSITIVE],
+    Mailbox: [PARYATECH_ROLE.OPERATOR],
+    SMTP: [PARYATECH_ROLE.OPERATOR],
+    Sales: [PARYATECH_ROLE.OPERATOR, PARYATECH_ROLE.COMMERCIAL_SENSITIVE],
+    Commercial: [PARYATECH_ROLE.COMMERCIAL_SENSITIVE],
+    Support: [PARYATECH_ROLE.OPERATOR, PARYATECH_ROLE.COMMERCIAL_SENSITIVE],
+    Audit: [PARYATECH_ROLE.AUDIT_REVIEWER],
+    Security: ['Administrator'],
+    Recovery: [PARYATECH_ROLE.RECOVERY_ADMINISTRATOR],
+    Integration: [PARYATECH_ROLE.OPERATOR, PARYATECH_ROLE.COMMERCIAL_SENSITIVE],
+    Policy: [PARYATECH_ROLE.LEGAL_COMPLIANCE],
+  };
 
 export const isNonEmptyText = (value: unknown): value is string =>
   typeof value === 'string' && value.trim().length > 0;
@@ -30,6 +50,29 @@ export const assertActorRole = (
   if (!allowedRoles.includes(actualRole)) {
     throw new ParyatechCrmException(
       `Role ${actualRole} cannot perform this guarded action`,
+      ParyatechCrmExceptionCode.PERMISSION_DENIED,
+    );
+  }
+};
+
+export const canActorResumeSharedException = (
+  actorRole: ParyatechActorRole,
+  capability: unknown,
+) =>
+  (capability === 'Recovery' &&
+    actorRole.label === BUILT_IN_ADMIN_ROLE_LABEL &&
+    actorRole.isEditable === false) ||
+  (SHARED_EXCEPTION_ROLES_BY_CAPABILITY[String(capability)] ?? []).includes(
+    actorRole.label,
+  );
+
+export const assertActorCanResumeSharedException = (
+  actorRole: ParyatechActorRole,
+  capability: unknown,
+) => {
+  if (!canActorResumeSharedException(actorRole, capability)) {
+    throw new ParyatechCrmException(
+      `Role ${actorRole.label} cannot perform this guarded action`,
       ParyatechCrmExceptionCode.PERMISSION_DENIED,
     );
   }

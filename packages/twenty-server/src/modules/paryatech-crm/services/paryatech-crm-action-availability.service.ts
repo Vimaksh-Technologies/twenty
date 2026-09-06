@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { AgencyContactControlService } from 'src/modules/paryatech-crm/services/agency-contact-control.service';
+import { canActorResumeSharedException } from 'src/modules/paryatech-crm/services/guarded-transition.helpers';
 import {
   PARYATECH_CRM_ACTION,
   type ParyatechCrmAction,
@@ -24,21 +25,6 @@ type AvailableActionsParams = {
   recordId: string;
 };
 
-const EXCEPTION_ROLES: Record<string, readonly string[]> = {
-  Import: [PARYATECH_ROLE.OPERATOR],
-  Outreach: [PARYATECH_ROLE.OPERATOR, PARYATECH_ROLE.COMMERCIAL_SENSITIVE],
-  Mailbox: [PARYATECH_ROLE.OPERATOR],
-  SMTP: [PARYATECH_ROLE.OPERATOR],
-  Sales: [PARYATECH_ROLE.OPERATOR, PARYATECH_ROLE.COMMERCIAL_SENSITIVE],
-  Commercial: [PARYATECH_ROLE.COMMERCIAL_SENSITIVE],
-  Support: [PARYATECH_ROLE.OPERATOR, PARYATECH_ROLE.COMMERCIAL_SENSITIVE],
-  Audit: [PARYATECH_ROLE.AUDIT_REVIEWER],
-  Security: ['Administrator'],
-  Recovery: [PARYATECH_ROLE.RECOVERY_ADMINISTRATOR],
-  Integration: [PARYATECH_ROLE.OPERATOR, PARYATECH_ROLE.COMMERCIAL_SENSITIVE],
-  Policy: [PARYATECH_ROLE.LEGAL_COMPLIANCE],
-};
-
 const OPEN_SUPPORT_CASE_STATUSES = [
   'New',
   'Assigned',
@@ -57,7 +43,8 @@ export class ParyatechCrmActionAvailabilityService {
   async getAvailableActions(
     params: AvailableActionsParams,
   ): Promise<ParyatechCrmAction[]> {
-    const roleLabel = await this.store.getActorRoleLabel(params);
+    const actorRole = await this.store.getActorRole(params);
+    const roleLabel = actorRole.label;
     const u5Actions =
       params.objectName === 'company'
         ? await this.agencyContactControlService.getAvailableActions({
@@ -131,7 +118,7 @@ export class ParyatechCrmActionAvailabilityService {
           record.status === 'Resolved' &&
           record.resumedAt == null &&
           record.ownerId === params.actorWorkspaceMemberId &&
-          (EXCEPTION_ROLES[String(record.capability)] ?? []).includes(roleLabel)
+          canActorResumeSharedException(actorRole, record.capability)
         ) {
           actions.push(PARYATECH_CRM_ACTION.RESUME_SHARED_EXCEPTION);
         }

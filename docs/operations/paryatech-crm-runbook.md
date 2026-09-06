@@ -505,12 +505,14 @@ The actual `PermissionFlagType` values in the pinned source are:
 | Settings | `API_KEYS_AND_WEBHOOKS`, `WORKSPACE`, `WORKSPACE_MEMBERS`, `ROLES`, `DATA_MODEL`, `SECURITY`, `WORKFLOWS`, `IMPERSONATE`, `SSO_BYPASS`, `APPLICATIONS`, `MARKETPLACE_APPS`, `LAYOUTS`, `BILLING`, `AI_SETTINGS` |
 | Tools | `AI`, `VIEWS`, `UPLOAD_FILE`, `DOWNLOAD_FILE`, `SEND_EMAIL_TOOL`, `CREATE_CALENDAR_EVENT_TOOL`, `HTTP_REQUEST_TOOL`, `CODE_INTERPRETER_TOOL`, `IMPORT_CSV`, `EXPORT_CSV`, `CONNECTED_ACCOUNTS`, `PROFILE_INFORMATION` |
 
-The built-in Administrator role is system-managed and cannot be narrowed like a
-custom role. Its power is controlled by assigning it only to the two protected
-recovery identities, requiring separate authorization for high-risk use, and auditing
-every use. `HTTP_REQUEST_TOOL`, `CODE_INTERPRETER_TOOL`, logic-function execution,
-and production AI execution remain globally disabled even if an Administrator screen
-shows the corresponding role flag.
+The built-in `Admin` role is system-managed and cannot be narrowed like a custom
+role. Assign it to exactly the three owner accounts: Vimaksh HQ, Pragyam, and Romil.
+This technical role assignment does not make all three recovery owners. C09
+`recoveryAdministrators` must contain exactly Vimaksh HQ and Pragyam; Romil must be
+excluded and must never own a Recovery-capability C08 exception. Require separate
+authorization for high-risk use and audit every use. `HTTP_REQUEST_TOOL`,
+`CODE_INTERPRETER_TOOL`, logic-function execution, and production AI execution
+remain globally disabled even if an Admin screen shows the corresponding role flag.
 
 ### Human role and identity matrix
 
@@ -520,8 +522,13 @@ shows the corresponding role flag.
 | ROLE-CS | `Paryatech Commercial Sensitive` custom role | One named approved human per account | Complete Operator profile plus restricted commercial read and guarded commercial actions. Still no export, delete/destroy, settings, connection, role, workflow, object-model, or key-management power. |
 | ROLE-LC | `Paryatech Legal Compliance` custom role | One named accountable human per account | Review outreach basis, suppression evidence, and retained minimum evidence; only role authorized for `clearSuppression`. No outbound, opportunity, commercial, bulk-export, destructive, or administrative power. |
 | ROLE-AR | `Paryatech Audit Reviewer` custom role | One named approved human per account | Read-only business and privileged evidence. It is classified as commercial-sensitive for read-only Agreement review, but cannot update business records or alter/delete audit evidence. |
-| ROLE-RA1 | Built-in Administrator | First named recovery-only human identity | Users, roles, settings, connections, retention, emergency halt, and recovery. Never the person's default operating identity. |
-| ROLE-RA2 | Built-in Administrator | Second named recovery-only human identity | Independent recovery path with the same limits; no shared credential, factor, device, or recovery method with ROLE-RA1. |
+| ROLE-RA1 | Built-in `Admin` | Vimaksh HQ owner account; first process-designated recovery owner | Users, roles, settings, connections, retention, emergency halt, and recovery. A Recovery-capability C08 exception may be assigned only under the C09 recovery process. |
+| ROLE-RA2 | Built-in `Admin` | Pragyam owner account; second process-designated recovery owner | Independent recovery path with the same limits; no shared credential, factor, device, or recovery method with ROLE-RA1. |
+| OWNER-ROMIL | Built-in `Admin` | Romil owner account; explicitly excluded from C09 `recoveryAdministrators` | Owner administration under the same technical Twenty role. Never assign Recovery-capability C08 ownership or authorize recovery use. |
+
+All three owner accounts therefore have the same non-editable Twenty `Admin`
+capabilities. References to ROLE-RA1/2 elsewhere in this runbook identify the
+exactly-two recovery process, not the complete owner/Admin roster.
 
 The planner/data owner is an accountability recorded in C09, not an automatic
 permission grant. Combining a planner or commercial duty with another job in the
@@ -1547,8 +1554,8 @@ checks and the later disposable-workspace browser smoke are the replacement evid
 1. `git diff --check -- docs/operations/paryatech-crm-runbook.md`
 2. Heading and identifier consistency: one H1; unique N01–N05, C01–C09, and
    REL01–REL19 declarations; unique ROLE-OP, ROLE-CS, ROLE-LC, ROLE-AR, ROLE-RA1,
-   ROLE-RA2, ID-IMP, ID-COMM, ID-SUPPORT, ID-GOOGLE, ID-SMTP, ID-AUDIT-W,
-   ID-AUDIT-R, and ID-BACKUP identity declarations; every relation, role, identity,
+   ROLE-RA2, OWNER-ROMIL, ID-IMP, ID-COMM, ID-SUPPORT, ID-GOOGLE, ID-SMTP,
+   ID-AUDIT-W, ID-AUDIT-R, and ID-BACKUP identity declarations; every relation,
    protected-field set, and probe reference resolves to a declaration.
 3. U1 recipe completeness: scope, fixed vocabularies, native/custom field
    inventories, relation inventory, constraints, policy gate, creation order,
