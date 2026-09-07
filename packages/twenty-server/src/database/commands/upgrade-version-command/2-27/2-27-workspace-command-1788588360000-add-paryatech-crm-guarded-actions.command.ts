@@ -21,8 +21,12 @@ const GUARDED_ACTION_OBJECT_NAMES = [
   'supportCase',
   'sharedException',
 ] as const;
-const GUARDED_ACTION_COMMAND_NAMESPACE =
-  'bb4dcf55-729b-4d42-aab7-e0a84144e969';
+const PARYATECH_U1_ANCHOR_OBJECT_NAMES = [
+  'commercialAgreement',
+  'supportCase',
+  'sharedException',
+] as const;
+const GUARDED_ACTION_COMMAND_NAMESPACE = 'bb4dcf55-729b-4d42-aab7-e0a84144e969';
 
 @RegisteredWorkspaceCommand('2.27.0', 1788588360000)
 @Command({
@@ -50,15 +54,26 @@ export class AddParyatechCrmGuardedActionsCommand extends ProvisionedWorkspaceCo
         'flatObjectMetadataMaps',
         'flatCommandMenuItemMaps',
       ]);
-    const objects = GUARDED_ACTION_OBJECT_NAMES.map((nameSingular) => {
-      const object = Object.values(
-        flatObjectMetadataMaps.byUniversalIdentifier,
-      ).find(
+    const findActiveObject = (nameSingular: string) =>
+      Object.values(flatObjectMetadataMaps.byUniversalIdentifier).find(
         (metadata) =>
           isDefined(metadata) &&
           metadata.isActive &&
           metadata.nameSingular === nameSingular,
       );
+    const presentParyatechAnchorCount = PARYATECH_U1_ANCHOR_OBJECT_NAMES.filter(
+      (nameSingular) => isDefined(findActiveObject(nameSingular)),
+    ).length;
+
+    if (presentParyatechAnchorCount === 0) {
+      this.logger.log(
+        `Paryatech U1 schema does not exist for workspace ${workspaceId}, skipping guarded actions`,
+      );
+      return;
+    }
+
+    const objects = GUARDED_ACTION_OBJECT_NAMES.map((nameSingular) => {
+      const object = findActiveObject(nameSingular);
       if (!isDefined(object)) {
         throw new Error(`Required U1 object ${nameSingular} is missing`);
       }

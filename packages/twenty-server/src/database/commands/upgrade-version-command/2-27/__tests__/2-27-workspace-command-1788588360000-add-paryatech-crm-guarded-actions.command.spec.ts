@@ -26,8 +26,17 @@ const objectMaps = Object.fromEntries(
   ]),
 );
 
+const objectMapsFor = (objectNames: readonly string[]) =>
+  Object.fromEntries(
+    Object.entries(objectMaps).filter(([, objectMetadata]) =>
+      objectNames.includes(objectMetadata.nameSingular),
+    ),
+  );
+
 describe('AddParyatechCrmGuardedActionsCommand', () => {
-  const validateBuildAndRun = jest.fn().mockResolvedValue({ status: 'success' });
+  const validateBuildAndRun = jest
+    .fn()
+    .mockResolvedValue({ status: 'success' });
   const getOrRecompute = jest.fn().mockResolvedValue({
     flatObjectMetadataMaps: { byUniversalIdentifier: objectMaps },
     flatCommandMenuItemMaps: { byUniversalIdentifier: {} },
@@ -95,15 +104,38 @@ describe('AddParyatechCrmGuardedActionsCommand', () => {
     expect(validateBuildAndRun).not.toHaveBeenCalled();
   });
 
-  it('should fail closed when any required U1 object is missing', async () => {
+  it('should skip a vanilla workspace when all Paryatech U1 anchors are absent', async () => {
     getOrRecompute.mockResolvedValue({
       flatObjectMetadataMaps: {
-        byUniversalIdentifier: Object.fromEntries(Object.entries(objectMaps).slice(1)),
+        byUniversalIdentifier: objectMapsFor([
+          'company',
+          'person',
+          'opportunity',
+        ]),
       },
       flatCommandMenuItemMaps: { byUniversalIdentifier: {} },
     });
 
-    await expect(run()).rejects.toThrow('Required U1 object company is missing');
+    await expect(run()).resolves.toBeUndefined();
+    expect(validateBuildAndRun).not.toHaveBeenCalled();
+  });
+
+  it('should fail closed when the Paryatech U1 schema is partial', async () => {
+    getOrRecompute.mockResolvedValue({
+      flatObjectMetadataMaps: {
+        byUniversalIdentifier: objectMapsFor([
+          'company',
+          'person',
+          'opportunity',
+          'commercialAgreement',
+        ]),
+      },
+      flatCommandMenuItemMaps: { byUniversalIdentifier: {} },
+    });
+
+    await expect(run()).rejects.toThrow(
+      'Required U1 object supportCase is missing',
+    );
     expect(validateBuildAndRun).not.toHaveBeenCalled();
   });
 });
