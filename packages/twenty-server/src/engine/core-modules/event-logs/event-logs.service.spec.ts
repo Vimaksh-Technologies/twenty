@@ -9,17 +9,17 @@ import { EventLogsService } from 'src/engine/core-modules/event-logs/event-logs.
 
 describe('EventLogsService.validateAccess', () => {
   let service: EventLogsService;
-  let getMainClient: jest.Mock;
+  let isAuditLogsConfigured: jest.Mock;
   let hasEntitlement: jest.Mock;
   let isValid: jest.Mock;
 
   beforeEach(() => {
-    getMainClient = jest.fn().mockReturnValue({});
+    isAuditLogsConfigured = jest.fn().mockReturnValue(true);
     hasEntitlement = jest.fn().mockResolvedValue(true);
     isValid = jest.fn().mockReturnValue(true);
 
     service = new EventLogsService(
-      { getMainClient } as unknown as ClickHouseService,
+      { isAuditLogsConfigured } as unknown as ClickHouseService,
       { hasEntitlement } as unknown as BillingService,
       { isValid } as unknown as EnterprisePlanService,
       {} as never,
@@ -33,7 +33,7 @@ describe('EventLogsService.validateAccess', () => {
     );
 
   it('throws CLICKHOUSE_NOT_CONFIGURED when ClickHouse is unavailable', async () => {
-    getMainClient.mockReturnValue(undefined);
+    isAuditLogsConfigured.mockReturnValue(false);
 
     const error = await validateAccessError(EventLogTable.WORKSPACE_EVENT);
 
@@ -75,5 +75,34 @@ describe('EventLogsService.validateAccess', () => {
     await expect(
       service.validateAccess('ws-1', EventLogTable.OBJECT_EVENT),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('EventLogsService.queryEventLogs', () => {
+  it('uses strict ClickHouse reads so unavailable audit storage is not reported as empty', async () => {
+    const selectOrThrow = jest
+      .fn()
+      .mockRejectedValue(new Error('ClickHouse read failed'));
+    const service = new EventLogsService(
+      {
+        isAuditLogsConfigured: () => true,
+        selectOrThrow,
+      } as unknown as ClickHouseService,
+      {
+        hasEntitlement: jest.fn().mockResolvedValue(true),
+      } as unknown as BillingService,
+      {
+        isValid: jest.fn().mockReturnValue(true),
+      } as unknown as EnterprisePlanService,
+      {} as never,
+    );
+
+    await expect(
+      service.queryEventLogs('ws-1', {
+        table: EventLogTable.WORKSPACE_EVENT,
+        first: 10,
+      } as never),
+    ).rejects.toThrow('ClickHouse read failed');
+    expect(selectOrThrow).toHaveBeenCalledTimes(2);
   });
 });

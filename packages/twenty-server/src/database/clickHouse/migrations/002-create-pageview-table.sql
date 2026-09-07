@@ -8,4 +8,4 @@ CREATE TABLE IF NOT EXISTS pageview
 )
     ENGINE = MergeTree
     ORDER BY (workspaceId, timestamp, name, userId)
-    TTL timestamp + INTERVAL 3 YEAR DELETE;
+    TTL toDateTime(timestamp) + INTERVAL 3 YEAR DELETE;

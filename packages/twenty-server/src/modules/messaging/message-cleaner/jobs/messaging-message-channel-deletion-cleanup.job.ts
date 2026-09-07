@@ -28,7 +28,7 @@ export class MessagingMessageChannelDeletionCleanupJob {
     data: MessagingMessageChannelDeletionCleanupJobData,
   ): Promise<void> {
     this.logger.debug(
-      `WorkspaceId: ${data.workspaceId} Cleaning up message channel message associations for channel ${data.messageChannelId}`,
+      `WorkspaceId: ${data.workspaceId} Cleaning up message channel associations, orphaned messages, and attachment mirrors for channel ${data.messageChannelId}`,
     );
 
     await this.messageCleanerService.deleteMessageChannelMessageAssociationsByChannelId(

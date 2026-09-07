@@ -5,7 +5,10 @@ import {
   FieldActorSource,
   MessageChannelContactAutoCreationPolicy,
   MessageParticipantRole,
+  ConnectedAccountProvider,
 } from 'twenty-shared/types';
+import { GoogleOAuth2ClientProvider } from 'src/modules/connected-account/oauth2-client-manager/drivers/google/google-oauth2-client.provider';
+import { GmailImportAttachmentsService } from 'src/modules/messaging/message-import-manager/drivers/gmail/services/gmail-import-attachments.service';
 
 import { type MessageChannelEntity } from 'src/engine/metadata-modules/message-channel/entities/message-channel.entity';
 import { MessageQueue } from 'src/engine/core-modules/message-queue/message-queue.constants';
@@ -27,6 +30,7 @@ describe('MessagingSaveMessagesAndEnqueueContactCreationService', () => {
   let messageQueueService: MessageQueueService;
   let messageService: MessagingMessageService;
   let messageParticipantService: MessagingMessageParticipantService;
+  let testingModule: TestingModule;
 
   let datasourceInstance: { transaction: jest.Mock };
 
@@ -36,6 +40,7 @@ describe('MessagingSaveMessagesAndEnqueueContactCreationService', () => {
     id: 'connected-account-id',
     handle: 'test@example.com',
     handleAliases: ['alias1@example.com', 'alias2@example.com'],
+    provider: ConnectedAccountProvider.GOOGLE,
   } as ConnectedAccountEntity;
 
   const mockMessageChannel: MessageChannelEntity = {
@@ -178,8 +183,25 @@ describe('MessagingSaveMessagesAndEnqueueContactCreationService', () => {
               .mockImplementation((fn: () => any, _authContext?: any) => fn()),
           },
         },
+        {
+          provide: GmailImportAttachmentsService,
+          useValue: {
+            importAttachments: jest.fn().mockResolvedValue({
+              imported: 0,
+              quarantined: 0,
+              skipped: 0,
+            }),
+          },
+        },
+        {
+          provide: GoogleOAuth2ClientProvider,
+          useValue: {
+            getClient: jest.fn().mockResolvedValue({}),
+          },
+        },
       ],
     }).compile();
+    testingModule = module;
 
     service = module.get<MessagingSaveMessagesAndEnqueueContactCreationService>(
       MessagingSaveMessagesAndEnqueueContactCreationService,
@@ -220,6 +242,52 @@ describe('MessagingSaveMessagesAndEnqueueContactCreationService', () => {
     );
     expect(result?.messageExternalIdToMessageThreadIdMap.get('message-1')).toBe(
       'db-thread-id-1',
+    );
+  });
+
+  it('imports Gmail attachments after the message transaction commits', async () => {
+    const gmailImportAttachmentsService =
+      testingModule.get<GmailImportAttachmentsService>(
+        GmailImportAttachmentsService,
+      );
+    const messageWithAttachment = {
+      ...mockMessages[0],
+      attachments: [
+        {
+          id: 'provider-attachment-id',
+          filename: 'invoice.pdf',
+          mimeType: 'application/pdf',
+          size: 42,
+        },
+      ],
+    };
+
+    await service.saveMessagesAndEnqueueContactCreation(
+      [messageWithAttachment],
+      mockMessageChannel,
+      mockConnectedAccount,
+      workspaceId,
+    );
+
+    expect(
+      gmailImportAttachmentsService.importAttachments,
+    ).toHaveBeenCalledWith({
+      gmailClient: expect.any(Object),
+      connectedAccountId: 'connected-account-id',
+      workspaceId,
+      messages: [
+        {
+          messageId: 'db-message-id-1',
+          providerMessageId: 'message-1',
+          attachments: messageWithAttachment.attachments,
+        },
+      ],
+    });
+    expect(
+      datasourceInstance.transaction.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      (gmailImportAttachmentsService.importAttachments as jest.Mock).mock
+        .invocationCallOrder[0],
     );
   });
 

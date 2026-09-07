@@ -9,6 +9,7 @@ import {
   type WorkspaceEventEnvelope,
   type WorkspaceEventTable,
 } from 'src/engine/core-modules/event-logs/types/workspace-event-envelope.type';
+import { redactEventLogSecrets } from 'src/engine/core-modules/event-logs/utils/redact-event-log-secrets';
 
 const CLICKHOUSE_INSERT_OPTIONS_BY_TABLE: Partial<
   Record<WorkspaceEventTable, ClickHouseInsertOptions>
@@ -23,7 +24,10 @@ export class ClickHouseEventSink implements EventSink {
   constructor(private readonly clickHouseService: ClickHouseService) {}
 
   async write(events: WorkspaceEventEnvelope[]): Promise<void> {
-    if (events.length === 0 || !this.clickHouseService.getMainClient()) {
+    if (
+      events.length === 0 ||
+      !this.clickHouseService.isClientConfigured('ingest')
+    ) {
       return;
     }
 
@@ -35,7 +39,7 @@ export class ClickHouseEventSink implements EventSink {
     for (const event of events) {
       const rows = rowsByTable.get(event.table) ?? [];
 
-      rows.push(event.row);
+      rows.push(redactEventLogSecrets(event.row));
       rowsByTable.set(event.table, rows);
     }
 

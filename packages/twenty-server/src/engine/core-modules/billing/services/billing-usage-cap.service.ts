@@ -46,7 +46,11 @@ export class BillingUsageCapService {
   ) {}
 
   isClickHouseEnabled(): boolean {
-    return Boolean(this.twentyConfigService.get('CLICKHOUSE_URL'));
+    return Boolean(
+      this.twentyConfigService.get('AUDIT_LOGS_ENABLED')
+        ? this.twentyConfigService.get('CLICKHOUSE_READ_URL')
+        : this.twentyConfigService.get('CLICKHOUSE_URL'),
+    );
   }
 
   async getBatchPeriodCreditsUsed(

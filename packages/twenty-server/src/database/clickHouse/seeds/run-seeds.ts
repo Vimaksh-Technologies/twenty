@@ -2,6 +2,8 @@
 import { createClient, ClickHouseLogLevel } from '@clickhouse/client';
 import { config } from 'dotenv';
 
+import { resolveClickHouseUrl } from 'src/database/clickHouse/resolve-clickhouse-url';
+
 import {
   objectEventFixtures,
   usageEventFixtures,
@@ -10,19 +12,17 @@ import {
 
 config({
   path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env',
-  override: true,
+  override: false,
 });
 
 const client = createClient({
-  url: process.env.CLICKHOUSE_URL,
+  url: resolveClickHouseUrl(process.env, 'ingest'),
   log: { level: ClickHouseLogLevel.OFF },
 });
 
 async function seedEvents() {
   try {
-    console.log(
-      `⚡ Seeding ${workspaceEventFixtures.length} workspace events...`,
-    );
+    console.log(`Seeding ${workspaceEventFixtures.length} workspace events...`);
 
     await client.insert({
       table: 'workspaceEvent',
@@ -30,7 +30,7 @@ async function seedEvents() {
       format: 'JSONEachRow',
     });
 
-    console.log(`⚡ Seeding ${objectEventFixtures.length} object events...`);
+    console.log(`Seeding ${objectEventFixtures.length} object events...`);
 
     await client.insert({
       table: 'objectEvent',
@@ -38,7 +38,7 @@ async function seedEvents() {
       format: 'JSONEachRow',
     });
 
-    console.log(`⚡ Seeding ${usageEventFixtures.length} usage events...`);
+    console.log(`Seeding ${usageEventFixtures.length} usage events...`);
 
     await client.insert({
       table: 'usageEvent',
@@ -46,16 +46,13 @@ async function seedEvents() {
       format: 'JSONEachRow',
     });
 
-    console.log('✅ All events seeded successfully');
-  } catch (error) {
-    console.error('Error seeding events:', error);
-    throw error;
+    console.log('All events seeded successfully');
   } finally {
     await client.close();
   }
 }
 
-seedEvents().catch((err) => {
-  console.error('Seeding error:', err);
+seedEvents().catch(() => {
+  console.error('ClickHouse seeding failed');
   process.exit(1);
 });

@@ -160,6 +160,24 @@ export const STANDARD_OBJECT_FIELDS = {
     ),
     name: { universalIdentifier: '20202020-87a5-48f8-bbf7-ade388825a57' },
     file: { universalIdentifier: '20202020-15db-460e-8166-c7b5d87ad4be' },
+    fileId: {
+      universalIdentifier: 'd0b5e579-8dfe-4b86-b6b0-c953aff74922',
+    },
+    providerAttachmentId: {
+      universalIdentifier: 'eb9edfe8-7454-4334-b0db-71e4a4b0cf36',
+    },
+    mimeType: {
+      universalIdentifier: '99a506ce-8375-4897-b391-e9e25b1dceba',
+    },
+    size: {
+      universalIdentifier: '8809e8c5-8872-4674-86c7-8145c2f8ba87',
+    },
+    safetyState: {
+      universalIdentifier: 'fa78b099-6aa6-48d7-86e3-7a933e80a0db',
+    },
+    quarantineReason: {
+      universalIdentifier: '1816754c-8221-4682-9131-dfb0a38e8fd8',
+    },
     //deprecated
     fullPath: { universalIdentifier: '20202020-0d19-453d-8e8d-fbcda8ca3747' },
     //deprecated
@@ -234,6 +252,16 @@ export const STANDARD_OBJECT_FIELDS = {
           STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.attachment,
         relationTargetObjectUniversalIdentifier:
           STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.workflow,
+      }),
+    },
+    message: {
+      universalIdentifier: getSystemRelationFieldUniversalIdentifier({
+        applicationUniversalIdentifier:
+          TWENTY_STANDARD_APPLICATION_UNIVERSAL_IDENTIFIER,
+        objectUniversalIdentifier:
+          STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.attachment,
+        relationTargetObjectUniversalIdentifier:
+          STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.message,
       }),
     },
   },
@@ -641,6 +669,16 @@ export const STANDARD_OBJECT_FIELDS = {
     },
     messageParticipants: {
       universalIdentifier: '20202020-7cff-4a74-b63c-73228448cbd9',
+    },
+    attachments: {
+      universalIdentifier: getSystemRelationFieldUniversalIdentifier({
+        applicationUniversalIdentifier:
+          TWENTY_STANDARD_APPLICATION_UNIVERSAL_IDENTIFIER,
+        objectUniversalIdentifier:
+          STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.message,
+        relationTargetObjectUniversalIdentifier:
+          STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.attachment,
+      }),
     },
     messageChannelMessageAssociations: {
       universalIdentifier: '20202020-3cef-43a3-82c6-50e7cfbc9ae4',

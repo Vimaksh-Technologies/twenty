@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 
 import { WorkspaceIteratorModule } from 'src/database/commands/command-runners/workspace-iterator.module';
 import { AddWorkspaceMemberOpenRecordInCommand } from 'src/database/commands/upgrade-version-command/2-27/2-27-workspace-command-1785505000000-add-workspace-member-open-record-in.command';
+import { AddMessageAttachmentRelationsCommand } from 'src/database/commands/upgrade-version-command/2-27/2-27-workspace-command-1788551309000-add-message-attachment-relations.command';
+import { AddParyatechCrmGuardedActionsCommand } from 'src/database/commands/upgrade-version-command/2-27/2-27-workspace-command-1788588360000-add-paryatech-crm-guarded-actions.command';
 import { SeedObjectOpenRecordInCommand } from 'src/database/commands/upgrade-version-command/2-27/2-27-workspace-command-1785505100000-seed-object-open-record-in.command';
 import { BackfillMissingStandardSkillsCommand } from 'src/database/commands/upgrade-version-command/2-27/2-27-workspace-command-1785499350000-backfill-standard-skills.command';
 import { ApplicationModule } from 'src/engine/core-modules/application/application.module';
@@ -19,6 +21,8 @@ import { WorkspaceMigrationModule } from 'src/engine/workspace-manager/workspace
   ],
   providers: [
     AddWorkspaceMemberOpenRecordInCommand,
+    AddMessageAttachmentRelationsCommand,
+    AddParyatechCrmGuardedActionsCommand,
     SeedObjectOpenRecordInCommand,
     BackfillMissingStandardSkillsCommand,
   ],

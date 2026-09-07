@@ -54,6 +54,7 @@ export enum EngineComponentKey {
   SEND_MESSAGE_CAMPAIGN = 'SEND_MESSAGE_CAMPAIGN',
   SEND_MESSAGE_CAMPAIGN_TEST = 'SEND_MESSAGE_CAMPAIGN_TEST',
   EMAIL_BLOCK_SETTINGS = 'EMAIL_BLOCK_SETTINGS',
+  PARYATECH_CRM_RECORD_ACTION = 'PARYATECH_CRM_RECORD_ACTION',
 
   // TODO: Remove deprecated keys once upgrade:1-21:refactor-navigation-commands has run on all workspaces
   // Deprecated: replaced by NAVIGATION engine key with payload

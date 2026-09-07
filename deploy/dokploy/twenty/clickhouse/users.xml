@@ -1,0 +1,135 @@
+<clickhouse>
+  <profiles>
+    <ingest>
+      <readonly>0</readonly>
+      <log_queries>1</log_queries>
+    </ingest>
+    <audit_reader>
+      <readonly>1</readonly>
+      <log_queries>1</log_queries>
+    </audit_reader>
+    <migration>
+      <readonly>0</readonly>
+      <log_queries>1</log_queries>
+    </migration>
+    <retention>
+      <readonly>0</readonly>
+      <log_queries>1</log_queries>
+    </retention>
+    <backup>
+      <readonly>0</readonly>
+      <log_queries>1</log_queries>
+    </backup>
+    <restore>
+      <readonly>0</readonly>
+      <log_queries>1</log_queries>
+    </restore>
+  </profiles>
+
+  <users>
+    <default>
+      <password from_env="CLICKHOUSE_ADMIN_PASSWORD" />
+      <networks>
+        <ip>127.0.0.1</ip>
+        <ip>::1</ip>
+      </networks>
+      <profile>default</profile>
+      <quota>default</quota>
+      <access_management>1</access_management>
+    </default>
+
+    <twenty_ingest>
+      <password from_env="CLICKHOUSE_INGEST_PASSWORD" />
+      <networks>
+        <ip>0.0.0.0/0</ip>
+        <ip>::/0</ip>
+      </networks>
+      <profile>ingest</profile>
+      <quota>default</quota>
+      <access_management>0</access_management>
+      <grants>
+        <query>GRANT INSERT ON twenty.*</query>
+      </grants>
+    </twenty_ingest>
+
+    <twenty_audit_reviewer>
+      <password from_env="CLICKHOUSE_AUDIT_REVIEWER_PASSWORD" />
+      <networks>
+        <ip>0.0.0.0/0</ip>
+        <ip>::/0</ip>
+      </networks>
+      <profile>audit_reader</profile>
+      <quota>default</quota>
+      <access_management>0</access_management>
+      <grants>
+        <query>GRANT SELECT ON twenty.*</query>
+      </grants>
+    </twenty_audit_reviewer>
+
+    <twenty_migration>
+      <password from_env="CLICKHOUSE_MIGRATION_PASSWORD" />
+      <networks>
+        <ip>0.0.0.0/0</ip>
+        <ip>::/0</ip>
+      </networks>
+      <profile>migration</profile>
+      <quota>default</quota>
+      <access_management>0</access_management>
+      <grants>
+        <query>GRANT CREATE DATABASE ON twenty.*</query>
+        <query>GRANT CREATE TABLE ON twenty.*</query>
+        <query>GRANT SELECT ON twenty.*</query>
+        <query>GRANT INSERT ON twenty.*</query>
+        <query>GRANT ALTER TABLE ON twenty.*</query>
+        <query>GRANT DROP TABLE ON twenty.*</query>
+      </grants>
+    </twenty_migration>
+
+    <twenty_retention>
+      <password from_env="CLICKHOUSE_RETENTION_PASSWORD" />
+      <networks>
+        <ip>0.0.0.0/0</ip>
+        <ip>::/0</ip>
+      </networks>
+      <profile>retention</profile>
+      <quota>default</quota>
+      <access_management>0</access_management>
+      <grants>
+        <query>GRANT ALTER DELETE ON twenty.*</query>
+      </grants>
+    </twenty_retention>
+
+    <twenty_backup>
+      <password from_env="CLICKHOUSE_BACKUP_PASSWORD" />
+      <networks>
+        <ip>0.0.0.0/0</ip>
+        <ip>::/0</ip>
+      </networks>
+      <profile>backup</profile>
+      <quota>default</quota>
+      <access_management>0</access_management>
+      <grants>
+        <query>GRANT SELECT ON twenty.*</query>
+        <query>GRANT BACKUP ON twenty.*</query>
+      </grants>
+    </twenty_backup>
+
+    <twenty_restore>
+      <password from_env="CLICKHOUSE_RESTORE_PASSWORD" />
+      <networks>
+        <ip>0.0.0.0/0</ip>
+        <ip>::/0</ip>
+      </networks>
+      <profile>restore</profile>
+      <quota>default</quota>
+      <access_management>0</access_management>
+      <grants>
+        <query>GRANT BACKUP ON twenty.*</query>
+        <query>GRANT CREATE DATABASE ON twenty_restore_validation.*</query>
+        <query>GRANT CREATE TABLE ON twenty_restore_validation.*</query>
+        <query>GRANT INSERT ON twenty_restore_validation.*</query>
+        <query>GRANT SELECT ON twenty_restore_validation.*</query>
+      </grants>
+    </twenty_restore>
+  </users>
+</clickhouse>

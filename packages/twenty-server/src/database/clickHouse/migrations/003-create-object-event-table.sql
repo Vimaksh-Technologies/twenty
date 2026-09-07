@@ -11,4 +11,4 @@ CREATE TABLE IF NOT EXISTS objectEvent
 )
     ENGINE = MergeTree
     ORDER BY (workspaceId, timestamp, event, userId)
-    TTL timestamp + INTERVAL 3 YEAR DELETE;
+    TTL toDateTime(timestamp) + INTERVAL 3 YEAR DELETE;

@@ -1669,6 +1669,7 @@ export enum EngineComponentKey {
   NAVIGATE_TO_NEXT_RECORD = 'NAVIGATE_TO_NEXT_RECORD',
   NAVIGATE_TO_PREVIOUS_RECORD = 'NAVIGATE_TO_PREVIOUS_RECORD',
   NAVIGATION = 'NAVIGATION',
+  PARYATECH_CRM_RECORD_ACTION = 'PARYATECH_CRM_RECORD_ACTION',
   REMOVE_FROM_FAVORITES = 'REMOVE_FROM_FAVORITES',
   REPLY_TO_EMAIL_THREAD = 'REPLY_TO_EMAIL_THREAD',
   RESTORE_MULTIPLE_RECORDS = 'RESTORE_MULTIPLE_RECORDS',
@@ -1974,6 +1975,7 @@ export enum FileFolder {
   EmailImage = 'EmailImage',
   FilesField = 'FilesField',
   GeneratedSdkClient = 'GeneratedSdkClient',
+  MessageAttachment = 'MessageAttachment',
   PublicAsset = 'PublicAsset',
   Source = 'Source',
   Workflow = 'Workflow'
@@ -2412,6 +2414,24 @@ export type MarketplaceAppRoleObjectPermission = {
   universalIdentifier: Scalars['String']['output'];
 };
 
+export type MessageAttachment = {
+  __typename?: 'MessageAttachment';
+  canDownload: Scalars['Boolean']['output'];
+  id: Scalars['UUID']['output'];
+  mimeType: Scalars['String']['output'];
+  name: Scalars['String']['output'];
+  quarantineReason?: Maybe<Scalars['String']['output']>;
+  safetyState: Scalars['String']['output'];
+  size: Scalars['Float']['output'];
+};
+
+export type MessageAttachmentDownloadGrant = {
+  __typename?: 'MessageAttachmentDownloadGrant';
+  expiresAt: Scalars['DateTime']['output'];
+  token: Scalars['String']['output'];
+  url: Scalars['String']['output'];
+};
+
 export type MessageCampaignBodyConfiguration = {
   __typename?: 'MessageCampaignBodyConfiguration';
   configurationType: WidgetConfigurationType;
@@ -2628,6 +2648,7 @@ export type Mutation = {
   createEmailingDomain: EmailingDomain;
   createFileUpload: FileUploadTarget;
   createFrontComponent: FrontComponent;
+  createMessageAttachmentDownloadGrant?: Maybe<MessageAttachmentDownloadGrant>;
   createManyNavigationMenuItems: Array<NavigationMenuItem>;
   createManyViewFieldGroups: Array<ViewFieldGroup>;
   createManyViewFields: Array<ViewField>;
@@ -2971,6 +2992,12 @@ export type MutationCreateFileUploadArgs = {
 
 export type MutationCreateFrontComponentArgs = {
   input: CreateFrontComponentInput;
+};
+
+
+export type MutationCreateMessageAttachmentDownloadGrantArgs = {
+  attachmentId: Scalars['UUID']['input'];
+  messageId: Scalars['UUID']['input'];
 };
 
 
@@ -4575,6 +4602,7 @@ export type Query = {
   getApiKeyRoles: Array<Role>;
   getApprovedAccessDomains: Array<ApprovedAccessDomain>;
   getAutoCompleteAddress: Array<AutocompleteResult>;
+  getAuthorizedMessageAttachments: Array<MessageAttachment>;
   getAvailablePackages: Scalars['JSON']['output'];
   getConnectedImapSmtpCaldavAccount: ConnectedImapSmtpCaldavAccount;
   getEmailingDomains: Array<EmailingDomain>;
@@ -4830,6 +4858,11 @@ export type QueryGetAutoCompleteAddressArgs = {
   country?: InputMaybe<Scalars['String']['input']>;
   isFieldCity?: InputMaybe<Scalars['Boolean']['input']>;
   token: Scalars['String']['input'];
+};
+
+
+export type QueryGetAuthorizedMessageAttachmentsArgs = {
+  messageId: Scalars['UUID']['input'];
 };
 
 
@@ -6746,6 +6779,24 @@ export type WorkspaceUrlsAndId = {
   workspaceUrls: WorkspaceUrls;
 };
 
+export type GetAuthorizedMessageAttachmentsQueryVariables = Exact<{
+  messageId: Scalars['UUID']['input'];
+}>;
+
+export type GetAuthorizedMessageAttachmentsQuery = {
+  __typename?: 'Query';
+  getAuthorizedMessageAttachments: Array<{
+    __typename?: 'MessageAttachment';
+    id: string;
+    name: string;
+    mimeType: string;
+    size: number;
+    safetyState: string;
+    quarantineReason?: string | null;
+    canDownload: boolean;
+  }>;
+};
+
 export type PreviewMessageCampaignAudienceQueryVariables = Exact<{
   input: PreviewMessageCampaignAudienceInput;
 }>;
@@ -6757,6 +6808,21 @@ export type UnsubscribeTopicsQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type UnsubscribeTopicsQuery = { __typename?: 'Query', unsubscribeTopics: Array<{ __typename?: 'UnsubscribeTopic', id: string, name?: string | null, description?: string | null, visibility: UnsubscribeTopicVisibility }> };
+
+export type CreateMessageAttachmentDownloadGrantMutationVariables = Exact<{
+  messageId: Scalars['UUID']['input'];
+  attachmentId: Scalars['UUID']['input'];
+}>;
+
+export type CreateMessageAttachmentDownloadGrantMutation = {
+  __typename?: 'Mutation';
+  createMessageAttachmentDownloadGrant?: {
+    __typename?: 'MessageAttachmentDownloadGrant';
+    url: string;
+    token: string;
+    expiresAt: string;
+  } | null;
+};
 
 export type SendEmailMutationVariables = Exact<{
   input: SendEmailInput;

@@ -16,9 +16,13 @@ export type Message = Omit<
   | 'messageCampaign'
   | 'messageCampaignId'
   | 'deliveryStatus'
+  | 'attachments'
 > & {
   attachments: {
     filename: string;
+    id?: string;
+    mimeType?: string;
+    size?: number;
   }[];
   externalId: string;
   messageThreadExternalId: string;

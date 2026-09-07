@@ -1,0 +1,275 @@
+services:
+  server:
+    image: ${TWENTY_IMAGE_REF:?TWENTY_IMAGE_REF is required}
+    restart: unless-stopped
+    expose:
+      - "3000"
+    volumes:
+      - server-local-data:/app/packages/twenty-server/.local-storage
+    environment:
+      NODE_PORT: "3000"
+      SERVER_URL: ${SERVER_URL:?SERVER_URL is required}
+      PG_DATABASE_URL: ${PG_DATABASE_URL:?PG_DATABASE_URL is required}
+      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      APP_SECRET: ${APP_SECRET:?APP_SECRET is required}
+      AUDIT_LOGS_ENABLED: "true"
+      CLICKHOUSE_INGEST_URL: ${CLICKHOUSE_INGEST_URL:?CLICKHOUSE_INGEST_URL is required}
+      CLICKHOUSE_READ_URL: ${CLICKHOUSE_READ_URL:?CLICKHOUSE_READ_URL is required}
+      STORAGE_TYPE: S_3
+      STORAGE_S3_REGION: auto
+      STORAGE_S3_NAME: ${STORAGE_S3_NAME:?STORAGE_S3_NAME is required}
+      STORAGE_S3_ENDPOINT: ${STORAGE_S3_ENDPOINT:?STORAGE_S3_ENDPOINT is required}
+      STORAGE_S3_ACCESS_KEY_ID: ${STORAGE_S3_ACCESS_KEY_ID:?STORAGE_S3_ACCESS_KEY_ID is required}
+      STORAGE_S3_SECRET_ACCESS_KEY: ${STORAGE_S3_SECRET_ACCESS_KEY:?STORAGE_S3_SECRET_ACCESS_KEY is required}
+      IS_MULTIWORKSPACE_ENABLED: "false"
+      IS_CONFIG_VARIABLES_IN_DB_ENABLED: "true"
+      LOGIC_FUNCTION_TYPE: DISABLED
+      CODE_INTERPRETER_TYPE: DISABLED
+      MESSAGING_PROVIDER_GMAIL_ENABLED: ${MESSAGING_PROVIDER_GMAIL_ENABLED:-false}
+      CALENDAR_PROVIDER_GOOGLE_ENABLED: ${CALENDAR_PROVIDER_GOOGLE_ENABLED:-false}
+      MESSAGING_INITIAL_SYNC_LOOKBACK_DAYS: "90"
+      AUTH_GOOGLE_CLIENT_ID: ${AUTH_GOOGLE_CLIENT_ID:-}
+      AUTH_GOOGLE_CLIENT_SECRET: ${AUTH_GOOGLE_CLIENT_SECRET:-}
+      AUTH_GOOGLE_CALLBACK_URL: ${AUTH_GOOGLE_CALLBACK_URL:-}
+      AUTH_GOOGLE_APIS_CALLBACK_URL: ${AUTH_GOOGLE_APIS_CALLBACK_URL:-}
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-noreply@yourdomain.com}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Felix from Twenty}
+      EMAIL_DRIVER: ${EMAIL_DRIVER:-LOGGER}
+      EMAIL_SMTP_HOST: ${EMAIL_SMTP_HOST:-}
+      EMAIL_SMTP_NO_TLS: ${EMAIL_SMTP_NO_TLS:-false}
+      EMAIL_SMTP_PORT: ${EMAIL_SMTP_PORT:-587}
+      EMAIL_SMTP_USER: ${EMAIL_SMTP_USER:-}
+      EMAIL_SMTP_PASSWORD: ${EMAIL_SMTP_PASSWORD:-}
+      DISABLE_DB_MIGRATIONS: "false"
+      DISABLE_CRON_JOBS_REGISTRATION: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      clickhouse-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:3000/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.25"
+          memory: 2G
+
+  worker:
+    image: ${TWENTY_IMAGE_REF:?TWENTY_IMAGE_REF is required}
+    command: ["yarn", "worker:prod"]
+    restart: unless-stopped
+    volumes:
+      - server-local-data:/app/packages/twenty-server/.local-storage
+    environment:
+      SERVER_URL: ${SERVER_URL:?SERVER_URL is required}
+      PG_DATABASE_URL: ${PG_DATABASE_URL:?PG_DATABASE_URL is required}
+      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      APP_SECRET: ${APP_SECRET:?APP_SECRET is required}
+      AUDIT_LOGS_ENABLED: "true"
+      CLICKHOUSE_INGEST_URL: ${CLICKHOUSE_INGEST_URL:?CLICKHOUSE_INGEST_URL is required}
+      CLICKHOUSE_READ_URL: ${CLICKHOUSE_READ_URL:?CLICKHOUSE_READ_URL is required}
+      STORAGE_TYPE: S_3
+      STORAGE_S3_REGION: auto
+      STORAGE_S3_NAME: ${STORAGE_S3_NAME:?STORAGE_S3_NAME is required}
+      STORAGE_S3_ENDPOINT: ${STORAGE_S3_ENDPOINT:?STORAGE_S3_ENDPOINT is required}
+      STORAGE_S3_ACCESS_KEY_ID: ${STORAGE_S3_ACCESS_KEY_ID:?STORAGE_S3_ACCESS_KEY_ID is required}
+      STORAGE_S3_SECRET_ACCESS_KEY: ${STORAGE_S3_SECRET_ACCESS_KEY:?STORAGE_S3_SECRET_ACCESS_KEY is required}
+      IS_MULTIWORKSPACE_ENABLED: "false"
+      IS_CONFIG_VARIABLES_IN_DB_ENABLED: "true"
+      LOGIC_FUNCTION_TYPE: DISABLED
+      CODE_INTERPRETER_TYPE: DISABLED
+      MESSAGING_PROVIDER_GMAIL_ENABLED: ${MESSAGING_PROVIDER_GMAIL_ENABLED:-false}
+      CALENDAR_PROVIDER_GOOGLE_ENABLED: ${CALENDAR_PROVIDER_GOOGLE_ENABLED:-false}
+      MESSAGING_INITIAL_SYNC_LOOKBACK_DAYS: "90"
+      AUTH_GOOGLE_CLIENT_ID: ${AUTH_GOOGLE_CLIENT_ID:-}
+      AUTH_GOOGLE_CLIENT_SECRET: ${AUTH_GOOGLE_CLIENT_SECRET:-}
+      AUTH_GOOGLE_CALLBACK_URL: ${AUTH_GOOGLE_CALLBACK_URL:-}
+      AUTH_GOOGLE_APIS_CALLBACK_URL: ${AUTH_GOOGLE_APIS_CALLBACK_URL:-}
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-noreply@yourdomain.com}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Felix from Twenty}
+      EMAIL_DRIVER: ${EMAIL_DRIVER:-LOGGER}
+      EMAIL_SMTP_HOST: ${EMAIL_SMTP_HOST:-}
+      EMAIL_SMTP_NO_TLS: ${EMAIL_SMTP_NO_TLS:-false}
+      EMAIL_SMTP_PORT: ${EMAIL_SMTP_PORT:-587}
+      EMAIL_SMTP_USER: ${EMAIL_SMTP_USER:-}
+      EMAIL_SMTP_PASSWORD: ${EMAIL_SMTP_PASSWORD:-}
+      DISABLE_DB_MIGRATIONS: "true"
+      DISABLE_CRON_JOBS_REGISTRATION: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      clickhouse-migrate:
+        condition: service_completed_successfully
+      server:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 1280M
+
+  db:
+    image: postgres:16.9-alpine@sha256:7c688148e5e156d0e86df7ba8ae5a05a2386aaec1e2ad8e6d11bdf10504b1fb7
+    restart: unless-stopped
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${PG_DATABASE_NAME:?PG_DATABASE_NAME is required}
+      POSTGRES_USER: ${PG_DATABASE_USER:?PG_DATABASE_USER is required}
+      POSTGRES_PASSWORD: ${PG_DATABASE_PASSWORD:?PG_DATABASE_PASSWORD is required}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 1536M
+
+  redis:
+    image: redis:7.4.7-alpine@sha256:02f2cc4882f8bf87c79a220ac958f58c700bdec0dfb9b9ea61b62fb0e8f1bfcf
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 384M
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8.14.39-alpine@sha256:b002e56ed5c16e224c312527f6fcba7e77216fec5d7a88a7828f59efc614feb5
+    restart: unless-stopped
+    expose:
+      - "8123"
+      - "9000"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-backup-staging:/var/lib/clickhouse/backups
+      - ./clickhouse/config.xml:/etc/clickhouse-server/config.d/paryatech.xml:ro
+      - ./clickhouse/users.xml:/etc/clickhouse-server/users.d/paryatech.xml:ro
+    environment:
+      CLICKHOUSE_SKIP_USER_SETUP: "1"
+      CLICKHOUSE_ADMIN_PASSWORD: ${CLICKHOUSE_ADMIN_PASSWORD:?CLICKHOUSE_ADMIN_PASSWORD is required}
+      CLICKHOUSE_INGEST_PASSWORD: ${CLICKHOUSE_INGEST_PASSWORD:?CLICKHOUSE_INGEST_PASSWORD is required}
+      CLICKHOUSE_AUDIT_REVIEWER_PASSWORD: ${CLICKHOUSE_AUDIT_REVIEWER_PASSWORD:?CLICKHOUSE_AUDIT_REVIEWER_PASSWORD is required}
+      CLICKHOUSE_MIGRATION_PASSWORD: ${CLICKHOUSE_MIGRATION_PASSWORD:?CLICKHOUSE_MIGRATION_PASSWORD is required}
+      CLICKHOUSE_RETENTION_PASSWORD: ${CLICKHOUSE_RETENTION_PASSWORD:?CLICKHOUSE_RETENTION_PASSWORD is required}
+      CLICKHOUSE_BACKUP_PASSWORD: ${CLICKHOUSE_BACKUP_PASSWORD:?CLICKHOUSE_BACKUP_PASSWORD is required}
+      CLICKHOUSE_RESTORE_PASSWORD: ${CLICKHOUSE_RESTORE_PASSWORD:?CLICKHOUSE_RESTORE_PASSWORD is required}
+    healthcheck:
+      test: ["CMD-SHELL", "CLICKHOUSE_PASSWORD=\"$${CLICKHOUSE_ADMIN_PASSWORD}\" clickhouse client --user default --query 'SELECT 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 1536M
+
+  clickhouse-migrate:
+    image: ${TWENTY_IMAGE_REF:?TWENTY_IMAGE_REF is required}
+    command: ["yarn", "clickhouse:migrate:prod"]
+    restart: "no"
+    environment:
+      AUDIT_LOGS_ENABLED: "true"
+      CLICKHOUSE_MIGRATION_URL: ${CLICKHOUSE_MIGRATION_URL:?CLICKHOUSE_MIGRATION_URL is required}
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 512M
+
+  clickhouse-retention:
+    image: ${TWENTY_IMAGE_REF:?TWENTY_IMAGE_REF is required}
+    command: ["yarn", "clickhouse:retention:prod"]
+    restart: "no"
+    profiles: ["operations"]
+    environment:
+      AUDIT_LOGS_ENABLED: "true"
+      CLICKHOUSE_RETENTION_URL: ${CLICKHOUSE_RETENTION_URL:?CLICKHOUSE_RETENTION_URL is required}
+      RETENTION_PG_DATABASE_URL: ${RETENTION_PG_DATABASE_URL:?RETENTION_PG_DATABASE_URL is required}
+      RETENTION_PG_DATABASE_USER: ${RETENTION_PG_DATABASE_USER:?RETENTION_PG_DATABASE_USER is required}
+      APP_PG_DATABASE_USER: ${PG_DATABASE_USER:?PG_DATABASE_USER is required}
+      RETENTION_HEALTHCHECK_URL: ${RETENTION_HEALTHCHECK_URL:?RETENTION_HEALTHCHECK_URL is required}
+      RETENTION_FAILURE_HEALTHCHECK_URL: ${RETENTION_FAILURE_HEALTHCHECK_URL:?RETENTION_FAILURE_HEALTHCHECK_URL is required}
+    depends_on:
+      db:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      clickhouse-migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+
+  backup:
+    image: ${TWENTY_BACKUP_IMAGE_REF:?TWENTY_BACKUP_IMAGE_REF is required}
+    restart: unless-stopped
+    volumes:
+      # Dokploy Advanced > Mounts owns this file; it is never committed or injected into other services.
+      - ../files/twenty-backup.env:/run/secrets/twenty-backup.env:ro
+      - clickhouse-backup-staging:/var/lib/clickhouse/backups
+    environment:
+      BACKUP_MODE: clickhouse-inclusive
+      AUDIT_LOGS_ENABLED: "true"
+      BACKUP_PG_DATABASE_URL: ${BACKUP_PG_DATABASE_URL:?BACKUP_PG_DATABASE_URL is required}
+      BACKUP_PG_DATABASE_USER: ${BACKUP_PG_DATABASE_USER:?BACKUP_PG_DATABASE_USER is required}
+      APP_PG_DATABASE_USER: ${PG_DATABASE_USER:?PG_DATABASE_USER is required}
+      BACKUP_HEALTHCHECK_URL: ${BACKUP_HEALTHCHECK_URL:?BACKUP_HEALTHCHECK_URL is required}
+      BACKUP_FAILURE_HEALTHCHECK_URL: ${BACKUP_FAILURE_HEALTHCHECK_URL:?BACKUP_FAILURE_HEALTHCHECK_URL is required}
+      BACKUP_SECRETS_FILE: /run/secrets/twenty-backup.env
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:?BACKUP_INTERVAL_SECONDS is required}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:?BACKUP_RETENTION_DAYS is required}
+      DELETION_PROPAGATION_DAYS: ${DELETION_PROPAGATION_DAYS:?DELETION_PROPAGATION_DAYS is required}
+      RECOVERY_RPO_MINUTES: ${RECOVERY_RPO_MINUTES:?RECOVERY_RPO_MINUTES is required}
+      RECOVERY_RTO_MINUTES: ${RECOVERY_RTO_MINUTES:?RECOVERY_RTO_MINUTES is required}
+      TWENTY_IMAGE_REF: ${TWENTY_IMAGE_REF:?TWENTY_IMAGE_REF is required}
+      TWENTY_APP_RELEASE: ${TWENTY_APP_RELEASE:?TWENTY_APP_RELEASE is required}
+      BACKUP_IMAGE_REF: ${TWENTY_BACKUP_IMAGE_REF:?TWENTY_BACKUP_IMAGE_REF is required}
+      CLICKHOUSE_BACKUP_STAGING_PATH: /var/lib/clickhouse/backups
+    depends_on:
+      db:
+        condition: service_healthy
+      clickhouse-migrate:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+
+volumes:
+  db-data:
+  server-local-data:
+  clickhouse-data:
+  clickhouse-backup-staging:

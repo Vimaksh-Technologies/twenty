@@ -63,6 +63,10 @@ export const fileFolderConfigs: Record<FileFolder, FileFolderConfig> = {
     ignoreExpirationToken: false,
     cacheControl: IMMUTABLE_FILE_CACHE_CONTROL,
   },
+  [FileFolder.MessageAttachment]: {
+    ignoreExpirationToken: false,
+    cacheControl: PRESIGNED_URL_NO_STORE_CACHE_CONTROL,
+  },
   [FileFolder.EmailImage]: {
     ignoreExpirationToken: true,
     cacheControl: IMMUTABLE_FILE_CACHE_CONTROL,

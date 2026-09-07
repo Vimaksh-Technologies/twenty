@@ -135,6 +135,7 @@ import { AddConnectedAccountHandleProviderIndexFastInstanceCommand } from 'src/d
 import { AddOpenRecordInToObjectMetadataFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-27/2-27-instance-command-fast-1785504900000-add-open-record-in-to-object-metadata';
 import { CreateUserSessionCoreTableFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-27/2-27-instance-command-fast-1785518325511-create-user-session-core-table';
 import { CreateApplicationAuthorizationCoreTableFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-27/2-27-instance-command-fast-1785681272278-create-application-authorization-core-table';
+import { CreateParyatechCommercialCutoverReceiptFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-27/2-27-instance-command-fast-1788588370000-create-paryatech-commercial-cutover-receipt';
 
 export const INSTANCE_COMMANDS = [
   AddViewFieldGroupIdIndexOnViewFieldFastInstanceCommand,
@@ -272,4 +273,5 @@ export const INSTANCE_COMMANDS = [
   AddOpenRecordInToObjectMetadataFastInstanceCommand,
   CreateUserSessionCoreTableFastInstanceCommand,
   CreateApplicationAuthorizationCoreTableFastInstanceCommand,
+  CreateParyatechCommercialCutoverReceiptFastInstanceCommand,
 ];
