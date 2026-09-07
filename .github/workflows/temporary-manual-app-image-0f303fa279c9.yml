@@ -61,8 +61,14 @@ jobs:
           amd64_digest="$(jq -er --arg fallback "$IMAGE_DIGEST" 'if has("manifests") then first(.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64")).digest else $fallback end' <<<"$manifest_json")"
           test -n "$amd64_digest"
           docker pull --platform linux/amd64 "$immutable_ref"
-          test "$(docker image inspect "$immutable_ref" --format '{{.Architecture}}')" = amd64
+          actual_architecture="$(docker image inspect "$immutable_ref" --format '{{.Architecture}}')"
+          printf 'observed-architecture=%s\n' "$actual_architecture"
+          test "$actual_architecture" = amd64
+          observed_app_version="$(docker run --rm --platform linux/amd64 --entrypoint sh "$immutable_ref" -c 'printf %s "$APP_VERSION"')"
+          printf 'observed-app-version=%s\n' "$observed_app_version"
+          test "$observed_app_version" = "$APP_VERSION"
           docker run --rm --platform linux/amd64 \
+            --workdir /app/packages/twenty-server \
             --env EXPECTED_APP_VERSION="$APP_VERSION" \
             --entrypoint node "$immutable_ref" \
             -e '
@@ -92,7 +98,9 @@ jobs:
               walk("/app/packages/twenty-server/dist");
               for (const [file, markers] of required) {
                 const content = found.get(file);
-                if (!content || markers.some((marker) => !content.includes(marker))) process.exit(1);
+                if (!content) { console.error(`missing artifact: ${file}`); process.exit(1); }
+                const missing = markers.filter((marker) => !content.includes(marker));
+                if (missing.length) { console.error(`missing markers in ${file}: ${missing.join(", " )}`); process.exit(1); }
               }
             '
           printf 'source-sha=%s\n' "$SOURCE_SHA"
