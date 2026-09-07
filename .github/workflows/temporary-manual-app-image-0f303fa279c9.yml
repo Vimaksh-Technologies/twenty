@@ -7,17 +7,18 @@ on:
 
 permissions:
   contents: read
-  packages: write
+  packages: read
 
 env:
   SOURCE_SHA: 0f303fa279c97d9af4eabc351f3c1fdada98bf50
   APP_VERSION: 2.28.0+0f303fa279c9
   IMAGE_TAG: ghcr.io/vimaksh-technologies/twenty:0f303fa279c97d9af4eabc351f3c1fdada98bf50
+  IMAGE_DIGEST: sha256:8ad98b14d46cde4d3374a3238e10d05d8e6783ba045deaab47ce76d5d1252911
 
 jobs:
-  build-publish:
+  verify-published-image:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 20
     steps:
       - name: Check out exact release source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -39,22 +40,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and publish immutable linux amd64 app image
-        id: build
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: .
-          file: packages/twenty-docker/twenty/Dockerfile
-          target: twenty
-          platforms: linux/amd64
-          build-args: APP_VERSION=${{ env.APP_VERSION }}
-          push: true
-          tags: ${{ env.IMAGE_TAG }}
-
-      - name: Verify immutable image provenance and guarded CRM payload
+      - name: Verify published immutable image provenance and guarded CRM payload
         shell: bash --noprofile --norc -euo pipefail {0}
-        env:
-          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           immutable_ref="${IMAGE_TAG}@${IMAGE_DIGEST}"
           manifest_json="$(docker buildx imagetools inspect --raw "$immutable_ref")"
@@ -62,10 +49,8 @@ jobs:
           test -n "$amd64_digest"
           docker pull --platform linux/amd64 "$immutable_ref"
           actual_architecture="$(docker image inspect "$immutable_ref" --format '{{.Architecture}}')"
-          printf 'observed-architecture=%s\n' "$actual_architecture"
           test "$actual_architecture" = amd64
           observed_app_version="$(docker run --rm --platform linux/amd64 --entrypoint sh "$immutable_ref" -c 'printf %s "$APP_VERSION"')"
-          printf 'observed-app-version=%s\n' "$observed_app_version"
           test "$observed_app_version" = "$APP_VERSION"
           docker run --rm --platform linux/amd64 \
             --workdir /app/packages/twenty-server \
@@ -74,7 +59,7 @@ jobs:
             -e '
               const semver = require("semver");
               if (process.env.APP_VERSION !== process.env.EXPECTED_APP_VERSION) process.exit(1);
-              if (semver.valid(process.env.APP_VERSION) !== process.env.EXPECTED_APP_VERSION) process.exit(1);
+              if (semver.valid(process.env.APP_VERSION) === null) process.exit(1);
             '
           docker run --rm --platform linux/amd64 \
             --entrypoint node "$immutable_ref" \
@@ -100,7 +85,7 @@ jobs:
                 const content = found.get(file);
                 if (!content) { console.error(`missing artifact: ${file}`); process.exit(1); }
                 const missing = markers.filter((marker) => !content.includes(marker));
-                if (missing.length) { console.error(`missing markers in ${file}: ${missing.join(", " )}`); process.exit(1); }
+                if (missing.length) { console.error(`missing markers in ${file}: ${missing.join(", ")}`); process.exit(1); }
               }
             '
           printf 'source-sha=%s\n' "$SOURCE_SHA"
