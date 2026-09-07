@@ -1,0 +1,10 @@
+{
+  "name": "@paryatech/twenty-workspace-config",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "apply": "node setup-paryatech-crm.mjs && node add-sales-views.mjs && node repair-view-fields.mjs && node unhide-view-fields.mjs && node configure-workflow-drafts.mjs",
+    "migrate": "npm run apply && npm run verify",
+    "verify": "node verify-paryatech-config.mjs"
+  }
+}
