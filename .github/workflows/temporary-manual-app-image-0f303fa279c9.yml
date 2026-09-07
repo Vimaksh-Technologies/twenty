@@ -1,0 +1,104 @@
+name: Temporary manual app image 0f303fa279c9
+
+on:
+  push:
+    branches:
+      - 'ci/temporary-manual-app-image-0f303fa279c9'
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  SOURCE_SHA: 0f303fa279c97d9af4eabc351f3c1fdada98bf50
+  APP_VERSION: 2.28.0+0f303fa279c9
+  IMAGE_TAG: ghcr.io/vimaksh-technologies/twenty:0f303fa279c97d9af4eabc351f3c1fdada98bf50
+
+jobs:
+  build-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out exact release source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+
+      - name: Assert exact release source
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish immutable linux amd64 app image
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: packages/twenty-docker/twenty/Dockerfile
+          target: twenty
+          platforms: linux/amd64
+          build-args: APP_VERSION=${{ env.APP_VERSION }}
+          push: true
+          tags: ${{ env.IMAGE_TAG }}
+
+      - name: Verify immutable image provenance and guarded CRM payload
+        shell: bash --noprofile --norc -euo pipefail {0}
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          immutable_ref="${IMAGE_TAG}@${IMAGE_DIGEST}"
+          manifest_json="$(docker buildx imagetools inspect --raw "$immutable_ref")"
+          amd64_digest="$(jq -er --arg fallback "$IMAGE_DIGEST" 'if has("manifests") then first(.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64")).digest else $fallback end' <<<"$manifest_json")"
+          test -n "$amd64_digest"
+          docker pull --platform linux/amd64 "$immutable_ref"
+          test "$(docker image inspect "$immutable_ref" --format '{{.Architecture}}')" = amd64
+          docker run --rm --platform linux/amd64 \
+            --env EXPECTED_APP_VERSION="$APP_VERSION" \
+            --entrypoint node "$immutable_ref" \
+            -e '
+              const semver = require("semver");
+              if (process.env.APP_VERSION !== process.env.EXPECTED_APP_VERSION) process.exit(1);
+              if (semver.valid(process.env.APP_VERSION) !== process.env.EXPECTED_APP_VERSION) process.exit(1);
+            '
+          docker run --rm --platform linux/amd64 \
+            --entrypoint node "$immutable_ref" \
+            -e '
+              const fs = require("fs");
+              const path = require("path");
+              const required = new Map([
+                ["guarded-transition.helpers.js", ["BUILT_IN_ADMIN_ROLE_LABEL", "actorRole.isEditable === false", "canActorResumeSharedException"]],
+                ["paryatech-crm-action-availability.service.js", ["RESUME_SHARED_EXCEPTION", "canActorResumeSharedException"]],
+                ["shared-exception.service.js", ["Only the assigned exception owner may resume affected work", "Explicit resume rejected because the affected gate did not pass"]],
+                ["2-27-workspace-command-1788588360000-add-paryatech-crm-guarded-actions.command.js", ["PARYATECH_U1_ANCHOR_OBJECT_NAMES", "presentParyatechAnchorCount === 0", "skipping guarded actions", "Required U1 object"]],
+              ]);
+              const found = new Map();
+              const walk = (directory) => {
+                for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+                  const candidate = path.join(directory, entry.name);
+                  if (entry.isDirectory()) walk(candidate);
+                  else if (required.has(entry.name)) found.set(entry.name, fs.readFileSync(candidate, "utf8"));
+                }
+              };
+              walk("/app/packages/twenty-server/dist");
+              for (const [file, markers] of required) {
+                const content = found.get(file);
+                if (!content || markers.some((marker) => !content.includes(marker))) process.exit(1);
+              }
+            '
+          printf 'source-sha=%s\n' "$SOURCE_SHA"
+          printf 'immutable-ref=%s\n' "$immutable_ref"
+          printf 'amd64-manifest-digest=%s\n' "$amd64_digest"
+          printf 'architecture=linux/amd64\n'
+          printf 'embedded-app-version=%s valid-semver=true\n' "$APP_VERSION"
+          printf 'guarded-admin-authorization=verified\n'
+          printf 'vanilla-workspace-skip=verified partial-u1-fail-closed-marker=verified\n'
