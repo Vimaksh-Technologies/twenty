@@ -1210,8 +1210,8 @@ async function configureRoles(objectIds) {
     icon: 'IconUser',
     canUpdateAllSettings: false,
     canAccessAllTools: false,
-    canReadAllObjectRecords: true, // narrowed via RLP if available
-    canUpdateAllObjectRecords: true,
+    canReadAllObjectRecords: false,
+    canUpdateAllObjectRecords: false,
     canSoftDeleteAllObjectRecords: false,
     canDestroyAllObjectRecords: false,
     canBeAssignedToUsers: true,
@@ -1226,11 +1226,14 @@ async function configureRoles(objectIds) {
     report.issues.push(`RM flags: ${e.message}`);
   }
 
-  // Attempt record-level permission: RM sees only assigned records
+  const rlpTargets = [
+    [IDS.company, (await getExistingFields(IDS.company)).get('assignedRm')],
+    [objectIds.lead.id, (await getExistingFields(objectIds.lead.id)).get('assignedRm')],
+    [objectIds.demo.id, (await getExistingFields(objectIds.demo.id)).get('assignedRm')],
+  ];
   try {
-    const leadFields = await getExistingFields(objectIds.lead.id);
-    const assignedRm = leadFields.get('assignedRm');
-    if (assignedRm) {
+    for (const [objectMetadataId, assignedRm] of rlpTargets) {
+      if (!assignedRm) throw new Error(`Assigned RM field missing on ${objectMetadataId}`);
       await meta(
         `mutation ($input: UpsertRowLevelPermissionPredicatesInput!) {
           upsertRowLevelPermissionPredicates(input: $input) { __typename }
@@ -1238,7 +1241,7 @@ async function configureRoles(objectIds) {
         {
           input: {
             roleId: rm.id,
-            objectMetadataId: objectIds.lead.id,
+            objectMetadataId,
             predicates: [
               {
                 fieldMetadataId: assignedRm.id,
@@ -1250,12 +1253,32 @@ async function configureRoles(objectIds) {
           },
         },
       );
-      report.tested.push('Row-level permission predicate upsert attempted for RM → Leads.assignedRm');
     }
-  } catch (e) {
+    const restrictedObjectIds = new Set(rlpTargets.map(([objectMetadataId]) => objectMetadataId));
+    await upsertObjectPermissions(
+      rm.id,
+      allObjectIds.map((objectMetadataId) => ({
+        objectMetadataId,
+        canReadObjectRecords: restrictedObjectIds.has(objectMetadataId),
+        canUpdateObjectRecords: restrictedObjectIds.has(objectMetadataId),
+        canSoftDeleteObjectRecords: false,
+        canDestroyObjectRecords: false,
+      })),
+    );
+    report.tested.push('RM row-level permissions applied to assigned agencies, leads, and demos');
+  } catch (error) {
+    await upsertObjectPermissions(
+      rm.id,
+      allObjectIds.map((objectMetadataId) => ({
+        objectMetadataId,
+        canReadObjectRecords: false,
+        canUpdateObjectRecords: false,
+        canSoftDeleteObjectRecords: false,
+        canDestroyObjectRecords: false,
+      })),
+    );
     report.limitations.push(
-      `Record-level access (RM sees only assigned records): upsert failed — ${e.message}. ` +
-        'Self-hosted Twenty exposes rowLevelPermissionPredicate tables/APIs; if the mutation is plan-gated or schema-version specific, configure Filters-as-views as a workaround until RLP is confirmed working in Settings → Roles.',
+      `RM row-level permissions unavailable — role failed closed with no CRM record access: ${error.message}`,
     );
   }
 

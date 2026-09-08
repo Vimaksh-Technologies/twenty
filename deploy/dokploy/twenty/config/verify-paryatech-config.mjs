@@ -190,7 +190,7 @@ const requiredRoles = {
     forbiddenFlags: ['DATA_MODEL', 'ROLES', 'SECURITY'],
   },
   RM: {
-    base: [false, false, true, true, false, false, true, false],
+    base: [false, false, false, false, false, false, true, false],
     flags: ['VIEWS', 'UPLOAD_FILE', 'DOWNLOAD_FILE', 'PROFILE_INFORMATION'],
     forbiddenFlags: ['EXPORT_CSV', 'DATA_MODEL', 'API_KEYS_AND_WEBHOOKS', 'WORKFLOWS', 'ROLES'],
   },
@@ -468,6 +468,18 @@ for (const [label, policy] of Object.entries(requiredRoles)) {
         permission.canDestroyObjectRecords
       ) {
         failures.push(`role-object-permission:Engineer.${objectName}`);
+      }
+    }
+  }
+  if (label === 'RM') {
+    for (const permission of role.objectPermissions) {
+      if (
+        permission.canReadObjectRecords ||
+        permission.canUpdateObjectRecords ||
+        permission.canSoftDeleteObjectRecords ||
+        permission.canDestroyObjectRecords
+      ) {
+        failures.push(`role-object-permission:RM.${permission.objectMetadataId}`);
       }
     }
   }
