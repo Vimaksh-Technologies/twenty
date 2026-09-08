@@ -2,6 +2,15 @@ const base = process.env.TWENTY_BASE_URL || 'http://localhost:3000';
 const token = (process.env.TWENTY_TOKEN || '').trim();
 if (!token) throw new Error('Set TWENTY_TOKEN to a target workspace token.');
 const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+const canonical = (value) => {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
+  }
+  return value;
+};
+const valuesEqual = (left, right) =>
+  JSON.stringify(canonical(left)) === JSON.stringify(canonical(right));
 
 async function metadata(query, variables = {}) {
   const response = await fetch(`${base}/metadata`, {
@@ -116,7 +125,7 @@ async function ensureFilter(viewId, fieldMetadataId, operand, value) {
     );
     return;
   }
-  if (current.operand !== operand || JSON.stringify(current.value) !== JSON.stringify(value)) {
+  if (current.operand !== operand || !valuesEqual(current.value, value)) {
     await metadata(
       `mutation ($input: UpdateViewFilterInput!) {
         updateViewFilter(input: $input) { id }
@@ -146,7 +155,7 @@ async function removeUnexpectedFilters(viewId, expectedFilters) {
       ([fieldMetadataId, operand, value]) =>
         filter.fieldMetadataId === fieldMetadataId &&
         filter.operand === operand &&
-        JSON.stringify(filter.value) === JSON.stringify(value),
+        valuesEqual(filter.value, value),
     );
     if (!expected) {
       await metadata(

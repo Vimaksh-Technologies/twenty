@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import fs from 'node:fs';
+
 
 const BASE = (process.env.TWENTY_BASE_URL || 'http://localhost:3000').replace(/\/$/, '');
 const TOKEN = (process.env.TWENTY_TOKEN || '').trim();
@@ -324,7 +326,7 @@ const requiredWorkflows = {
 
 const metadata = await gql('/metadata', `query {
   objects(paging: { first: 100 }) {
-    edges { node { id nameSingular isActive } }
+    edges { node { id nameSingular namePlural isActive isSystem } }
   }
   fields(paging: { first: 1000 }) {
     edges {
@@ -405,8 +407,10 @@ for (const [objectName, fieldNames] of Object.entries(requiredFields)) {
       failures.push(`field-relation:${path}:${target || 'missing'}`);
     }
     if (requiredOptionValues[path]) {
-      const actualValues = (field.options || []).map(({ value }) => value);
-      if (!equal(actualValues, requiredOptionValues[path])) failures.push(`field-options:${path}`);
+      const actualValues = new Set((field.options || []).map(({ value }) => value));
+      if (requiredOptionValues[path].some((value) => !actualValues.has(value))) {
+        failures.push(`field-options:${path}`);
+      }
     }
   }
 }
@@ -499,13 +503,16 @@ for (const [objectName, viewNames] of Object.entries(requiredViewModels)) {
     if (view.viewFilters.length !== expectedFilterCount) {
       failures.push(`view-filter-count:${viewName}:${view.viewFilters.length}`);
     }
-    const groupValues = requiredKanbanGroups[viewName];
-    if (groupValues) {
+    const requiredGroupValues = requiredKanbanGroups[viewName];
+    if (requiredGroupValues) {
       const expectedGroupField =
-        viewName === 'Agencies by Status' ? fieldAt('company.agencyStatus') : fieldAt('opportunity.stage');
+        viewName === 'Agencies by Status'
+          ? fieldAt('company.agencyStatus')
+          : fieldAt('opportunity.stage');
       if (view.mainGroupByFieldMetadataId !== expectedGroupField?.id) {
         failures.push(`view-group-field:${viewName}`);
       }
+      const groupValues = (expectedGroupField?.options || []).map(({ value }) => value);
       const visibleGroupValues = view.viewGroups
         .filter(({ isVisible }) => isVisible)
         .map(({ fieldValue }) => fieldValue);
@@ -584,6 +591,30 @@ for (const [workflowName, spec] of Object.entries(requiredWorkflows)) {
   }
 }
 
+
+const setupReport = JSON.parse(
+  fs.readFileSync(new URL('./setup-report.json', import.meta.url), 'utf8'),
+);
+const countedObjects = [...objects.values()].filter(
+  (object) =>
+    object.isActive &&
+    !object.isSystem &&
+    !['workflow', 'dashboard'].includes(object.nameSingular),
+);
+const recordCountsAfter = await gql(
+  '/graphql',
+  `query {
+    ${countedObjects
+      .map((object) => `${object.namePlural}: ${object.namePlural}(first: 1) { totalCount }`)
+      .join('\n')}
+  }`,
+);
+for (const [name, expectedCount] of Object.entries(setupReport.recordCountsBefore || {})) {
+  const actualCount = recordCountsAfter[name]?.totalCount;
+  if (actualCount !== expectedCount) {
+    failures.push(`record-count:${name}:${expectedCount}->${actualCount ?? 'missing'}`);
+  }
+}
 const result = {
   ok: failures.length === 0,
   target: BASE,

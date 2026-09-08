@@ -27,10 +27,20 @@ const report = {
   limitations: [],
   issues: [],
   tested: [],
+  recordCountsBefore: {},
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const uuid = () => crypto.randomUUID();
+const canonical = (value) => {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
+  }
+  return value;
+};
+const valuesEqual = (left, right) =>
+  JSON.stringify(canonical(left)) === JSON.stringify(canonical(right));
 
 async function gql(endpoint, query, variables = {}) {
   const res = await fetch(`${BASE}${endpoint}`, {
@@ -264,7 +274,7 @@ async function createViewFilter(viewId, fieldMetadataId, operand, value) {
       { input: { viewId, fieldMetadataId, operand, value } },
     );
   }
-  if (current.operand !== operand || JSON.stringify(current.value) !== JSON.stringify(value)) {
+  if (current.operand !== operand || !valuesEqual(current.value, value)) {
     await meta(
       `mutation ($input: UpdateViewFilterInput!) {
         updateViewFilter(input: $input) { id }
@@ -294,7 +304,7 @@ async function removeUnexpectedViewFilters(viewId, expectedFilters) {
       ([fieldMetadataId, operand, value]) =>
         filter.fieldMetadataId === fieldMetadataId &&
         filter.operand === operand &&
-        JSON.stringify(filter.value) === JSON.stringify(value),
+        valuesEqual(filter.value, value),
     );
     if (!expected) {
       await meta(
@@ -492,10 +502,16 @@ async function configureCompanies() {
       { label: 'Lost / Churned', value: 'LOSS', color: 'red' },
       { label: 'Do Not Contact / Spam', value: 'SPAM', color: 'gray' },
     ];
-    const options = desired.map((d, position) => {
-      const prev = byValue.get(d.value);
-      return prev ? { ...prev, label: d.label, color: d.color, position } : { ...d, position, id: uuid() };
+    const desiredValues = new Set(desired.map(({ value }) => value));
+    const options = desired.map((option, position) => {
+      const previous = byValue.get(option.value);
+      return previous
+        ? { ...previous, label: option.label, color: option.color, position }
+        : { ...option, position, id: uuid() };
     });
+    for (const existing of existingOpts.filter(({ value }) => !desiredValues.has(value))) {
+      options.push({ ...existing, position: options.length });
+    }
     await updateField(agencyStatus.id, { options, label: 'Agency Status' });
   }
 
@@ -721,14 +737,13 @@ async function configureOpportunities() {
       { label: 'Lost', value: 'LOST', color: 'red' },
       { label: 'Nurture', value: 'NURTURE', color: 'gray' },
     ]);
-    const byValue = new Map((stage.options || []).map((option) => [option.value, option]));
-    const options = desired.map((option, position) => {
-      const previous = byValue.get(option.value);
-      return previous
-        ? { ...previous, label: option.label, color: option.color, position }
-        : { ...option, position, id: uuid() };
-    });
-    await updateField(stage.id, { options, defaultValue: "'QUALIFIED'" });
+    const existingOptions = stage.options || [];
+    const existingValues = new Set(existingOptions.map(({ value }) => value));
+    const options = existingOptions.map((option, position) => ({ ...option, position }));
+    for (const option of desired.filter(({ value }) => !existingValues.has(value))) {
+      options.push({ ...option, position: options.length, id: uuid() });
+    }
+    await updateField(stage.id, { options });
   }
 
   await ensureField(IDS.opportunity, {
@@ -1489,31 +1504,37 @@ async function main() {
     if (!object) throw new Error(`Required standard object is missing: ${name}`);
     IDS[name] = object.id;
   }
-  const recordCountFields = [
-    ['companies', 'companies'],
-    ['people', 'people'],
-    ['opportunities', 'opportunities'],
-    ['tasks', 'tasks'],
-    ['notes', 'notes'],
-  ];
-  if (standardObjects.has('lead')) recordCountFields.push(['leads', 'leads']);
-  if (standardObjects.has('demo')) recordCountFields.push(['demos', 'demos']);
-  if (standardObjects.has('inboundSubmission')) {
-    recordCountFields.push(['inboundSubmissions', 'inboundSubmissions']);
+  const recordCountFields = [...standardObjects.values()]
+    .filter(
+      (object) =>
+        object.isActive &&
+        !object.isSystem &&
+        !['workflow', 'dashboard'].includes(object.nameSingular),
+    )
+    .map((object) => [object.namePlural, object.namePlural]);
+  for (const [nameSingular, namePlural] of [
+    ['lead', 'leads'],
+    ['demo', 'demos'],
+    ['inboundSubmission', 'inboundSubmissions'],
+  ]) {
+    if (!standardObjects.has(nameSingular)) recordCountFields.push([namePlural, namePlural]);
   }
+  const existingRecordCountFields = recordCountFields.filter(
+    ([, fieldName]) =>
+      standardObjects.has(
+        [...standardObjects.values()].find((object) => object.namePlural === fieldName)?.nameSingular,
+      ),
+  );
   const businessData = await core(
     `query {
-      ${recordCountFields
+      ${existingRecordCountFields
         .map(([alias, fieldName]) => `${alias}: ${fieldName}(first: 1) { totalCount }`)
         .join('\n')}
     }`,
   );
-  const populatedObjects = Object.entries(businessData)
-    .filter(([, result]) => result.totalCount > 0)
-    .map(([name, result]) => `${name}=${result.totalCount}`);
-  if (populatedObjects.length > 0) {
-    throw new Error(`Target contains business data (${populatedObjects.join(', ')}).`);
-  }
+  report.recordCountsBefore = Object.fromEntries(
+    recordCountFields.map(([name]) => [name, businessData[name]?.totalCount ?? 0]),
+  );
 
   report.tested.push('API authentication OK against target Paryatech workspace');
 
